@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: gradient-key
+Version: 0.1.0
+Summary: Code, tests and data of the article on the gradient key on random tables
+License-Expression: MIT
+Requires-Python: >=3.11
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: mpmath
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Dynamic: license-file

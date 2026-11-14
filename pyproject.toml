@@ -1,0 +1,22 @@
+[project]
+name = "gradient-key"
+version = "0.1.0"
+description = "Code, tests and data of the article on the gradient key on random tables"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["numpy", "mpmath"]
+
+[project.optional-dependencies]
+dev = ["pytest", "scipy"]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src/python"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src/python"]
+addopts = "-m 'not slow'"
