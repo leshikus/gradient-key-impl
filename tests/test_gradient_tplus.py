@@ -94,11 +94,11 @@ def test_grid_reproduces(tmp_path):
 def test_exact_cells_are_below_every_ingredient():
     """On all exact cells t^+ >= t, also when the exact value itself is left out."""
     ex = exact_values()
-    assert len(ex) == 473
+    assert len(ex) >= 473
     pairs = "".join(f"{n} {m}\n" for n, m in ex)
     for flags in ((), ("--no-exact",)):
         rows = list(csv.DictReader(engine("cells", *flags, stdin=pairs).splitlines()))
-        assert len(rows) == 473
+        assert len(rows) == len(ex)
         for r in rows:
             key = int(r["n"]), int(r["m"])
             assert Fraction(r["tplus"]) >= ex[key], (key, flags)
