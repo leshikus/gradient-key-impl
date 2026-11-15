@@ -153,3 +153,27 @@ def test_engine_matches_the_exact_formulas(m):
     c = sf.load_formula(DATA, m)
     for n in sorted({(m - 1).bit_length(), 2 * m, 3 * m + 1, 50}):
         assert sf.engine_excess_numerator(n, m, ENGINE) == sf.numerator(c, n), f"n={n}, m={m}"
+
+
+def test_closed_forms_near_the_complete_cube():
+    """Propositions dense and near-dense against every stored exact value they cover, and the control values."""
+    controls = {(3, 4): Fraction(1, 35), (4, 11): Fraction(1, 3003), (5, 26): Fraction(1, 736281),
+                (4, 10): Fraction(18, 5005), (5, 25): Fraction(2, 90675)}
+    for (n, m), d in controls.items():
+        assert sf.closed_form_excess(n, m)[0] == d, (n, m)
+    exact = {}
+    for name in ("exact.csv", "exact_formula.csv"):
+        for r in csv.DictReader(open(ROOT / "data" / "gradient-bound" / name)):
+            exact[int(r["n"]), int(r["m"])] = Fraction(int(r["numerator"]), int(r["denominator"])) - complete_cost(int(r["m"]))
+    for n, cells in sf.fixed_n_rows(DATA / "fixed_n.csv").items():
+        for m, v in cells.items():
+            exact[n, m] = v
+    checked = 0
+    for (n, m), v in exact.items():
+        cf = sf.closed_form_excess(n, m)
+        if cf is not None:
+            assert cf[0] == v, (n, m)
+            checked += 1
+    assert checked >= 24, checked
+    # the cases r = n+1 and r = n+2 are positive: Proposition dense is sharp
+    assert all(sf.closed_form_excess(n, 2**n - n - k)[0] > 0 for n in range(4, 13) for k in (1, 2))
