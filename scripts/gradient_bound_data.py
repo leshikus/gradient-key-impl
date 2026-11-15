@@ -102,6 +102,9 @@ def formula_grid() -> list[tuple[int, int]]:
                 cells.add((n, m))
     for m in range(4, 13):  # the range of the non-asymptotic form of the fixed-m theorem
         cells.add((math.isqrt(2 * m**3 - 1) + 1, m))  # ceil(sqrt(2) m^(3/2)), in integers
+    for n in range(4, 13):  # Result (2) of the article: every m > 12 with m <= min(32, 2^n), for n <= 12
+        for m in range(13, min(32, 2**n) + 1):
+            cells.add((n, m))
     return sorted(cells, key=lambda c: (tuple_count(*c) * c[0], c))
 
 
