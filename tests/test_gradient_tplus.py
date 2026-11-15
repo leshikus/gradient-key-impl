@@ -289,3 +289,15 @@ def test_article_table_is_generated():
         for m in mod.TPLUS_MS:
             if (n, m) in g:
                 assert mod.tplus_cell(g[n, m]) in text
+
+
+def test_dense_cells_are_exact():
+    """Proposition dense: t = C(m) for 2^n - n <= m < 2^n, where no exact value is stored."""
+    pairs = [(n, 2**n - r) for n in (13, 20, 40) for r in (1, n // 2, n)]
+    rows = list(csv.DictReader(engine("cells", stdin="".join(f"{n} {m}\n" for n, m in pairs)).splitlines()))
+    assert len(rows) == len(pairs)
+    for r in rows:
+        n, m = int(r["n"]), int(r["m"])
+        c = complete_cost(m)
+        assert r["ingredient"] == "exact" and "dense" in r["params"], (n, m)
+        assert c <= Fraction(r["tplus"]) < c + Fraction(1, 10**9), (n, m)

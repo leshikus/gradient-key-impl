@@ -2,7 +2,8 @@
 // upper bound on the average cost t_{n,m}(G) of the gradient key.
 //
 // t^+_{n,m} is the least of the bounds the article proves for the cell:
-//   exact     the exact value of data/gradient-bound/exact_formula.csv
+//   exact     the exact value of data/gradient-bound/exact_formula.csv, or C(m)
+//             if 2^n - n <= m < 2^n (Proposition dense: G is optimal there)
 //   trivial   min(n, C_max(m)): on D a path never repeats a row
 //   fixed     Theorem fixed-m: C(m) + (C_max - C) sum_{s>=4} C(m,s)(1-beta_s)^n / Q(D)
 //   union     Proposition union, minimised over the finite family of
@@ -521,6 +522,8 @@ Cell evaluate(long n, u64 m, bool use_exact) {
       double v = parse_dir(it->second.first, FE_UPWARD) / parse_dir(it->second.second, FE_DOWNWARD);
       c.exact = {v, ""};
     }
+    // Proposition dense: for 2^n - n <= m < 2^n every table has t = C(m). (m = 2^n is exact through "trivial".)
+    if (c.exact.value == INF && n < 63 && m < (u64{1} << n) && m + u64(n) >= (u64{1} << n)) c.exact = {c.C_up, "dense"};
   }
   c.trivial = {std::min(double(n), c.Cmax_up), double(n) <= c.Cmax_up ? "n" : "Cmax"};
   ingredient_fixed(c);
