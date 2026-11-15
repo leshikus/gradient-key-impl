@@ -3,13 +3,20 @@
 
     .venv/bin/python scripts/verify_certificates.py           # checksums, c_K, mu, t^+ sample (about a minute)
     .venv/bin/python scripts/verify_certificates.py --full    # also recompute c_b (r_b up to s = 4000, slow)
+    .venv/bin/python scripts/verify_certificates.py --strict  # --full, and fail on every skipped check or
+                                                              # version mismatch (needs the built engines and
+                                                              # the article repository next to this one)
     .venv/bin/python scripts/verify_certificates.py --write-checksums   # after regenerating the data
 
 The script does not trust the stored decimals. It recomputes kappa_K in integers (and re-checks
 its defining inequality in exact fractions), rho_{kappa_K} and the tails in mpmath interval
 arithmetic, and compares the upper endpoints with the printed constants as exact rationals.
 The versions it was run with are compared with requirements-certificates.txt. Exit status 0
-means every check passed.
+means every check that ran passed; the default and --full modes may skip checks (each skip is printed and
+counted). Only --strict fails closed.
+
+The data files themselves are exact computations (integer arithmetic, Chinese remainders with a spare
+prime); their checksums are compared with SHA256SUMS, which protects the bytes, not their derivation.
 """
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
@@ -54,10 +61,24 @@ TPLUS_SAMPLE = {(6, 4): "0.013", (12, 12): "0.082", (48, 8): "0.001", (256, 24):
 failures: list[str] = []
 
 
+STRICT = False
+counts = {"ok": 0, "skip": 0, "fail": 0}
+
+
 def check(ok: bool, what: str) -> None:
+    counts["ok" if ok else "fail"] += 1
     print(("ok    " if ok else "FAIL  ") + what)
     if not ok:
         failures.append(what)
+
+
+def skip(what: str) -> None:
+    """A check that did not run: a failure in --strict mode, counted otherwise."""
+    if STRICT:
+        check(False, "skipped in --strict mode: " + what)
+    else:
+        counts["skip"] += 1
+        print("skip  " + what)
 
 
 def frac(x) -> Fraction:
@@ -113,14 +134,17 @@ def versions() -> None:
     have = {"mpmath": mpmath.__version__}
     print(f"python {platform.python_version()} (pinned {py}), mpmath {mpmath.__version__} (pinned {pins['mpmath']})")
     if have["mpmath"] != pins["mpmath"] or platform.python_version() != py:
-        print("note  versions differ from requirements-certificates.txt; the checks below still apply")
+        if STRICT:
+            check(False, "versions differ from requirements-certificates.txt")
+        else:
+            print("note  versions differ from requirements-certificates.txt; the checks below still apply")
 
 
 def printed_macros() -> None:
     codes = Path(os.environ.get("ARTICLE_DIR", ROOT.parent / "gradient-key"))
     path = codes / "constants.tex"
     if not path.exists():
-        print("skip  constants.tex not found (article repository not checked out); using the values in this script")
+        skip("constants.tex not found (article repository not checked out); using the values in this script")
         return
     mac = dict(re.findall(r"\\newcommand\{\\(\w+)\}\{([0-9.]+)\}", path.read_text()))
     check(all(mac.get(k) == v for k, v in PRINTED.items()), "printed values in this script equal constants.tex")
@@ -171,7 +195,7 @@ def blocked_constants(full: bool) -> None:
             cname = {2: "cortwo", 3: "corthree"}[b]
             check(Fraction(PRINTED[cname]) >= cor, f"b={b}: (c_b + 1/64)/(1 - 2^-13) <= {PRINTED[cname]}")
     if not full:
-        print("note  c_b used the stored max r_b; run with --full to recompute it (r_b for s <= 4000)")
+        skip("c_b used the stored max r_b; run with --full to recompute it (r_b for s <= 4000)")
 
 
 def log2_lower(m: int) -> Fraction:
@@ -200,7 +224,7 @@ def tplus_sample() -> None:
             upper = gt.trivial_bound(n, m)
         elif ing == "cylinder":
             if not ENGINE.exists():
-                print(f"skip  ({n},{m}): build/cpp/gradient_tplus is needed for the requirement of (f)")
+                skip(f"({n},{m}): build/cpp/gradient_tplus is needed for the requirement of (f)")
                 continue
             p = dict(t.split("=") for t in r["cylinder_params"].replace("(s1=m)", "").split())
             out = subprocess.run([str(ENGINE), "kappa", str(n), str(m), p["j"], "--data", str(DATA)],
@@ -215,21 +239,39 @@ def tplus_sample() -> None:
               f"t^+({n},{m}), ingredient {ing}: printed {printed} >= recomputed bound - log m")
 
 
+def preflight() -> bool:
+    """--strict: the prerequisites that would otherwise cause skips, checked before the slow work."""
+    article = Path(os.environ.get("ARTICLE_DIR", ROOT.parent / "gradient-key")) / "constants.tex"
+    ok = True
+    for present, what in ((ENGINE.exists(), f"engine {ENGINE}"), (article.exists(), f"article file {article}")):
+        if not present:
+            check(False, f"--strict needs the {what}")
+            ok = False
+    return ok
+
+
 def main() -> int:
+    global STRICT
     if sys.argv[1:] == ["--write-checksums"]:
         write_checksums()
         return 0
-    full = sys.argv[1:] == ["--full"]
-    if sys.argv[1:] not in ([], ["--full"]):
+    if sys.argv[1:] not in ([], ["--full"], ["--strict"]):
         print(__doc__)
         return 2
+    STRICT = sys.argv[1:] == ["--strict"]
+    full = sys.argv[1:] in (["--full"], ["--strict"])
     versions()
+    if STRICT and not preflight():
+        print(f"\n{len(failures)} failure(s): strict mode stops before the slow checks")
+        return 1
     checksums()
     printed_macros()
     gradient_constants()
     blocked_constants(full)
     tplus_sample()
-    print(f"\n{len(failures)} failure(s)" if failures else "\nall checks passed")
+    mode = "strict" if STRICT else "full" if full else "quick (incomplete: see the skips)"
+    print(f"\nmode {mode}: {counts['ok']} passed, {counts['skip']} skipped, {counts['fail']} failed")
+    print(f"{len(failures)} failure(s)" if failures else "all checks that ran passed")
     return 1 if failures else 0
 
 

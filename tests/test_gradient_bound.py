@@ -289,3 +289,15 @@ def test_verify_certificates_script():
     path = Path(__file__).resolve().parents[1] / "scripts" / "verify_certificates.py"
     out = subprocess.run([sys.executable, str(path)], capture_output=True, text=True)
     assert out.returncode == 0, out.stdout + out.stderr
+
+
+def test_verify_certificates_strict_fails_closed(tmp_path):
+    """--strict fails closed, before the slow checks, when a prerequisite (here the t^+ engine) is missing."""
+    import os
+    import subprocess
+    import sys
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "verify_certificates.py"
+    env = dict(os.environ, GRADIENT_KEY_BUILD=str(tmp_path))
+    out = subprocess.run([sys.executable, str(path), "--strict"], capture_output=True, text=True, env=env)
+    assert out.returncode == 1 and "--strict needs the engine" in out.stdout, out.stdout

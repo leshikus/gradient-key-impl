@@ -29,6 +29,8 @@
 //                              splitting row costs 1
 //
 // SPDX-License-Identifier: MIT
+#include <cstring>
+#include <charconv>
 #include <algorithm>
 #include <atomic>
 #include <bit>
@@ -114,6 +116,21 @@ int cmd_exact(int n, int m) {
   if (n < 1 || n > 20 || m < 1 || m > 63 || m > (1 << n)) {
     std::println(stderr, "exact: need 1 <= n <= 20, 1 <= m <= min(63, 2^n)");
     return 2;
+  }
+  // count = C(2^n, m) and total <= count * m * (m - 1) / 2 must fit in u128: check with exact arithmetic.
+  {
+    u128 c = 1;
+    bool over = false;
+    for (int i = 0; i < m && !over; ++i) {  // c = C(2^n, i+1) = c * (2^n - i) / (i + 1), exact at each step
+      u128 next;
+      over = __builtin_mul_overflow(c, static_cast<u128>((u64{1} << n) - static_cast<u64>(i)), &next);
+      c = next / static_cast<u128>(i + 1);
+    }
+    u128 bound;
+    if (over || __builtin_mul_overflow(c, static_cast<u128>(m) * static_cast<u128>(m), &bound)) {
+      std::println(stderr, "exact: C(2^n, m) m^2 exceeds 128 bits; the cell is out of range");
+      return 2;
+    }
   }
   Exact e;
   e.n = n;
@@ -579,13 +596,25 @@ int cmd_chain(int b, int smax, const char* path, bool charge) {
 
 }  // namespace
 
+// A whole decimal int; exits with status 2 otherwise (std::atoi accepts "12abc" and maps garbage to 0).
+int arg_int(const char* s) {
+  int v = 0;
+  const char* end = s + std::strlen(s);
+  auto [p, ec] = std::from_chars(s, end, v);
+  if (ec != std::errc{} || p != end) {
+    std::println(stderr, "not an integer: {}", s);
+    std::exit(2);
+  }
+  return v;
+}
+
 int main(int argc, char** argv) {
   const std::string cmd = argc > 1 ? argv[1] : "";
-  if (cmd == "exact" && argc == 4) return cmd_exact(std::atoi(argv[2]), std::atoi(argv[3]));
-  if (cmd == "formula" && argc == 5) return cmd_formula(std::atoi(argv[2]), std::atoi(argv[3]), std::atoi(argv[4]), false);
-  if (cmd == "formula-all" && argc == 5) return cmd_formula(std::atoi(argv[2]), std::atoi(argv[3]), std::atoi(argv[4]), true);
+  if (cmd == "exact" && argc == 4) return cmd_exact(arg_int(argv[2]), arg_int(argv[3]));
+  if (cmd == "formula" && argc == 5) return cmd_formula(arg_int(argv[2]), arg_int(argv[3]), arg_int(argv[4]), false);
+  if (cmd == "formula-all" && argc == 5) return cmd_formula(arg_int(argv[2]), arg_int(argv[3]), arg_int(argv[4]), true);
   if (cmd == "chain" && (argc == 5 || (argc == 6 && std::string(argv[5]) == "charge")))
-    return cmd_chain(std::atoi(argv[2]), std::atoi(argv[3]), argv[4], argc == 6);
+    return cmd_chain(arg_int(argv[2]), arg_int(argv[3]), argv[4], argc == 6);
   std::println(stderr, "usage: gradient_bound exact n m | formula n m threads | formula-all nmax m threads | chain b Smax out.csv [charge]");
   return 2;
 }

@@ -39,6 +39,22 @@ from mpmath import iv
 
 from gradient_key.gradient_bound import complete_cost
 
+
+def _restore_iv_prec(f):
+    """Run ``f`` and restore the global ``mpmath.iv.prec`` it sets (callers keep their own precision)."""
+    import functools
+
+    @functools.wraps(f)
+    def g(*args, **kwargs):
+        saved = iv.prec
+        try:
+            return f(*args, **kwargs)
+        finally:
+            iv.prec = saved
+
+    return g
+
+
 __all__ = [
     "PREC",
     "inv_distinct",
@@ -69,6 +85,7 @@ def _cmax(m):
     return Fraction(m + 1, 2) - Fraction(1, m)
 
 
+@_restore_iv_prec
 def inv_distinct(n, m):
     r"""
     Return an interval containing `1/Q(D)`, `Q(D) = \prod_{i<m}(1 - i2^{-n})`.
@@ -110,6 +127,7 @@ def _fail(s, k):
     return Fraction(2 * sum(comb(s, j) for j in range(k)), 2**s)
 
 
+@_restore_iv_prec
 def fixed_bound(n, m):
     r"""
     Return the bound of Theorem fixed-m as an interval (all `s \le m`, so `m` should be small).
@@ -117,6 +135,7 @@ def fixed_bound(n, m):
     EXAMPLES::
 
         >>> b = fixed_bound(30, 3)
+        >>> iv.prec = PREC  # the function restores the caller's precision
         >>> abs(float((b - iv.mpf(5) / 3).b)) < 1e-40
         True
     """
@@ -128,6 +147,7 @@ def fixed_bound(n, m):
     return _iv(c) + _iv(_cmax(m) - c) * total * inv_distinct(n, m)
 
 
+@_restore_iv_prec
 def kappa_tau(n, m, j, smax):
     r"""
     Return `\kappa_j(s)` for `s \le s_{\max}` (index `s`): the largest `k \le \lfloor s/2\rfloor`
@@ -186,6 +206,7 @@ def _rho_upper(kappa, smax, bar=False):
     return (up, rbar) if bar else up
 
 
+@_restore_iv_prec
 def union_bound(n, m, j, s1, x):
     r"""
     Return the bound of Proposition union as an interval, with `\kappa = \kappa_j` below `s_1`.
@@ -224,6 +245,7 @@ def union_bound(n, m, j, s1, x):
     return _log2(m) + iv.mpf(mrho) + tail + rmax * inv_distinct(n, m) * (pcol + pcyl)
 
 
+@_restore_iv_prec
 def explicit_bound(n, m, cK):
     r"""
     Return `\log m + c_K + (0.026m^{-2} + [m > 500]2^{-10})/Q(D)` (Corollary explicit), for a given
@@ -248,6 +270,7 @@ def _cmax_iv(s):
     return _iv(_cmax(s)) - _log2(s)
 
 
+@_restore_iv_prec
 def cylinder_bound(n, m, kappa, s1, x):
     r"""
     Return the bound of Proposition cylinder as an interval, for the requirement ``kappa``
@@ -303,6 +326,7 @@ def cylinder_bound(n, m, kappa, s1, x):
     return _log2(m) + iv.mpf(mrho) + tail + inv_distinct(n, m) * (small + large)
 
 
+@_restore_iv_prec
 def uniform_bound(n, m):
     r"""
     Return the bound of Theorem uniform as an interval, with `l = \lfloor\log m\rfloor`:
@@ -326,6 +350,7 @@ def uniform_bound(n, m):
     return total
 
 
+@_restore_iv_prec
 def formula_value(n, m, coeffs):
     r"""
     Return an interval containing `t_{n,m}(G) = C(m) + \sum_j a_j (2j)^n/(2^n)_m` (Proposition small-m),

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Data for Step 9 of the analytic estimate (analytic/09-exact.tex).
 
-    .venv/bin/python scripts/gradient_analytic_9_data.py formula <threads> [timeout]
+    .venv/bin/python scripts/gradient_analytic_9_data.py formula <threads> [timeout] [--retry-timeouts]
         extend data/gradient-bound/exact_formula.csv by the cells of FORMULA_CELLS,
         cheapest first; a run longer than <timeout> seconds (default 1800) is stopped
-        and the cell is listed in data/gradient-bound/analytic/formula_out_of_reach.csv
+        and the cell is listed in data/gradient-bound/analytic/formula_out_of_reach.csv.
+        A listed cell is a local timeout, not an impossibility: it is skipped unless
+        --retry-timeouts is given; a retried cell that finishes leaves the list
     .venv/bin/python scripts/gradient_analytic_9_data.py enum <threads>
         exact enumeration of all n x m matrices (with symmetry) for the cells of
         ENUM_CELLS; stores the engine output in data/gradient-bound/analytic/enum/
@@ -49,7 +51,7 @@ FORMULA_RANGES = [
 ]
 
 
-def formula(threads: str, timeout: float = 1800.0) -> None:
+def formula(threads: str, timeout: float = 1800.0, retry: bool = False) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     path = DATA / "exact_formula.csv"
     done = {(int(r["n"]), int(r["m"])) for r in csv.DictReader(open(path))}
@@ -60,26 +62,36 @@ def formula(threads: str, timeout: float = 1800.0) -> None:
     else:
         miss_path.write_text("n,m,tuples,timeout_seconds\n")
     cells = [(n, m) for m, a, b in FORMULA_RANGES for n in range(a, b + 1)]
-    cells = [c for c in cells if c not in done and c not in missed]
+    cells = [c for c in cells if c not in done and (retry or c not in missed)]
     cells.sort(key=lambda c: tuple_count(*c) * c[0])
     log = OUT / "formula_runs.csv"
     if not log.exists():
         log.write_text("n,m,tuples,seconds,threads\n")
     for n, m in cells:
-        t0 = time.time()
+        t0 = time.monotonic()
         try:
             out = subprocess.run([str(ENGINE), "formula", str(n), str(m), threads], capture_output=True,
                                  text=True, check=True, timeout=timeout).stdout
         except subprocess.TimeoutExpired:
-            with open(miss_path, "a") as f:
-                f.write(f"{n},{m},{tuple_count(n, m)},{int(timeout)}\n")
+            if (n, m) not in missed:
+                with open(miss_path, "a") as f:
+                    f.write(f"{n},{m},{tuple_count(n, m)},{int(timeout)}\n")
+                missed.add((n, m))
             continue
         _, _, value = combine(out)
         with open(path, "a") as f:
             f.write(f"{n},{m},{value.numerator},{value.denominator}\n")
+        if (n, m) in missed:  # a retried cell finished: it is no longer out of reach
+            missed.discard((n, m))
+            keep = [r for r in csv.DictReader(open(miss_path)) if (int(r["n"]), int(r["m"])) != (n, m)]
+            with open(miss_path, "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=["n", "m", "tuples", "timeout_seconds"], lineterminator="\n")
+                w.writeheader()
+                w.writerows(keep)
+        seconds = time.monotonic() - t0
         with open(log, "a") as f:
-            f.write(f"{n},{m},{tuple_count(n, m)},{time.time() - t0:.1f},{threads}\n")
-        print(n, m, f"{time.time() - t0:.1f}s", flush=True)
+            f.write(f"{n},{m},{tuple_count(n, m)},{seconds:.1f},{threads}\n")
+        print(n, m, f"{seconds:.1f}s", flush=True)
 
 
 def enum(threads: str) -> None:
@@ -109,8 +121,10 @@ def tex() -> None:
 
 if __name__ == "__main__":
     a = sys.argv[1:]
+    retry = "--retry-timeouts" in a
+    a = [x for x in a if x != "--retry-timeouts"]
     if a[:1] == ["formula"] and len(a) in (2, 3):
-        formula(a[1], float(a[2]) if len(a) == 3 else 1800.0)
+        formula(a[1], float(a[2]) if len(a) == 3 else 1800.0, retry)
     elif a[:1] == ["enum"] and len(a) == 2:
         enum(a[1])
     elif a == ["data"]:

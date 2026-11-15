@@ -60,7 +60,9 @@ from gradient_key.gradient_bound import (
     theorem1_excess_bound,
 )
 
-mpmath.mp.dps = 40
+# A private context: importing this module must not change the global mpmath precision.
+_ctx = mpmath.MPContext()
+_ctx.dps = 40
 
 # Cells of the full enumeration (gradient_enum sym), and the (b, s_1) pairs studied there.
 ENUM_CELLS = [(4, 8), (5, 8), (6, 8), (6, 9), (4, 12), (5, 10), (5, 11), (5, 12), (4, 16), (4, 20), (7, 6), (7, 7), (8, 5), (8, 6), (9, 5)]
@@ -692,14 +694,14 @@ def path_budget(m, n=None):
     """
     terms = []
     for s in range(2, m + 1):
-        x = mpmath.mpf(1) / s
-        terms.append(1 + x * mpmath.log(x, 2) + (1 - x) * mpmath.log(1 - x, 2))
+        x = _ctx.mpf(1) / s
+        terms.append(1 + x * _ctx.log(x, 2) + (1 - x) * _ctx.log(1 - x, 2))
     terms.sort(reverse=True)
-    return mpmath.fsum(terms[: (m - 1) if n is None else min(n, m - 1)])
+    return _ctx.fsum(terms[: (m - 1) if n is None else min(n, m - 1)])
 
 
 def _mp(x):
-    return mpmath.mpf(x.numerator) / x.denominator
+    return _ctx.mpf(x.numerator) / x.denominator
 
 
 def step5_assembled(n, m, qf):
@@ -715,7 +717,7 @@ def step5_assembled(n, m, qf):
         >>> float(step5_assembled(4, 3, step5_failure(4, 3))) >= 5 / 3 - math.log2(3)
         True
     """
-    f = _mp(complete_cost(m)) - mpmath.log(m, 2)
+    f = _mp(complete_cost(m)) - _ctx.log(m, 2)
     return (f + path_budget(m, n) * _mp(qf)) / _mp(distinct_probability(n, m))
 
 
@@ -731,8 +733,8 @@ def m_star_limit(b):
         >>> round(float(m_star_limit(0.1)), 4)
         1.8227
     """
-    eta = 4 * mpmath.mpf(b) / mpmath.sqrt(mpmath.pi)
-    return mpmath.inf if eta >= 0.5 else 1 / (1 - 2 * eta)
+    eta = 4 * _ctx.mpf(b) / _ctx.sqrt(_ctx.pi)
+    return _ctx.inf if eta >= 0.5 else 1 / (1 - 2 * eta)
 
 
 def c1_limit(b):
@@ -748,11 +750,11 @@ def c1_limit(b):
         >>> c1_limit(0.4)
         mpf('0.0')
     """
-    b = mpmath.mpf(b)
+    b = _ctx.mpf(b)
     ms = m_star_limit(b)
-    if ms == mpmath.inf:
-        return mpmath.mpf(0)
-    return 4 * b / mpmath.sqrt(mpmath.pi) * mpmath.exp(-ms / 2 - 4 * b * b / 3)
+    if ms == _ctx.inf:
+        return _ctx.mpf(0)
+    return 4 * b / _ctx.sqrt(_ctx.pi) * _ctx.exp(-ms / 2 - 4 * b * b / 3)
 
 
 # ---------------------------------------------------------------- the article's bounds
@@ -782,7 +784,7 @@ def prop_union_best(n, m):
         (0, True)
     """
     qd = _mp(distinct_probability(n, m))
-    rmax = mpmath.mpf(m + 1) / 2 - mpmath.mpf(1) / m - mpmath.log(m, 2)
+    rmax = _ctx.mpf(m + 1) / 2 - _ctx.mpf(1) / m - _ctx.log(m, 2)
     best = None
     for j in range(max(1, m // 2)):
         kap = [0, 0] + [max(1, s // 2 - j) for s in range(2, m + 1)]
@@ -825,7 +827,7 @@ def nstr(x, digits=6):
         return ""
     if isinstance(x, (Fraction, int)):
         x = _mp(Fraction(x))
-    return mpmath.nstr(x, digits, min_fixed=-30, max_fixed=30)
+    return _ctx.nstr(x, digits, min_fixed=-30, max_fixed=30)
 
 
 # ---------------------------------------------------------------- data files
@@ -856,7 +858,7 @@ def exact_rows(data_dir):
         c = complete_cost(m)
         ex = v - c
         thm = theorem1_excess_bound(n, m)
-        lam = mpmath.log(m, 2)
+        lam = _ctx.log(m, 2)
         qf = step5_failure(n, m)
         bounds = [min(step5_union_bound(n, m, pi), step5_grouped_bound(n, m, pi)) for pi in (None, Fraction(1, m + 1))]
         pu, j = prop_union_best(n, m)
@@ -870,7 +872,7 @@ def exact_rows(data_dir):
             "step5_exact_QF": nstr(step5_assembled(n, m, qf), 10),
             "step5_bound_QF": nstr(step5_assembled(n, m, min(Fraction(1), bounds[0])), 10),
             "n_over_log": nstr(n / lam, 6),
-            "thmB_ratio": nstr((n - lam) / mpmath.log(n, 2) ** 2, 6) if n > 1 else "",
+            "thmB_ratio": nstr((n - lam) / _ctx.log(n, 2) ** 2, 6) if n > 1 else "",
             "many_rows": int(n * n >= 2 * m**3),
         })
     return rows
@@ -1020,16 +1022,16 @@ def tex_num(x, digits=3, up=False):
     """
     if x == "" or x is None:
         return ""
-    v = mpmath.mpf(x)
+    v = _ctx.mpf(x)
     if v == 0:
         return "0"
-    e = int(mpmath.floor(mpmath.log10(abs(v))))
-    scale = mpmath.mpf(10) ** (digits - 1 - e)
-    r = (mpmath.ceil(v * scale) if up else mpmath.nint(v * scale)) / scale
-    e = int(mpmath.floor(mpmath.log10(abs(r))))
+    e = int(_ctx.floor(_ctx.log10(abs(v))))
+    scale = _ctx.mpf(10) ** (digits - 1 - e)
+    r = (_ctx.ceil(v * scale) if up else _ctx.nint(v * scale)) / scale
+    e = int(_ctx.floor(_ctx.log10(abs(r))))
     if -3 <= e <= 3:
         return f"{float(r):.{max(0, digits - 1 - e)}f}"
-    mant = r / mpmath.mpf(10) ** e
+    mant = r / _ctx.mpf(10) ** e
     return f"${float(mant):.{digits - 1}f}\\cdot10^{{{e}}}$"
 
 

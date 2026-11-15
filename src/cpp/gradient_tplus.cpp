@@ -61,6 +61,11 @@
 
 #pragma STDC FENV_ACCESS ON
 
+// Directed rounding is meaningless under fast-math (it allows reassociation and ignores the rounding mode).
+#if defined(__FAST_MATH__)
+#error "gradient_tplus must not be built with -ffast-math"
+#endif
+
 namespace {
 
 using u64 = std::uint64_t;
@@ -182,14 +187,37 @@ std::vector<std::vector<std::string>> read_csv(const std::string& path) {
   return rows;
 }
 
-void read_data(const std::string& dir) {
+[[noreturn]] void data_error(const std::string& what) {
+  std::cerr << "data error: " << what << "\n";
+  std::exit(3);
+}
+
+// Missing files, short rows and duplicate cells are errors: a silently absent ingredient would only
+// raise t^+, but a silently absent file would make the output depend on the checkout.
+void read_data(const std::string& dir, bool use_exact) {
   auto ex = read_csv(dir + "/exact_formula.csv");
-  if (ex.empty()) std::cerr << "warning: no " << dir << "/exact_formula.csv\n";
-  for (auto& r : ex) EXACT[{std::stol(r[0]), std::stoull(r[1])}] = {r[2], r[3]};
-  for (auto& r : read_csv(dir + "/formula_cells.csv")) FORMULA[{std::stol(r[0]), std::stoull(r[1])}] = r[2];
-  // columns K,s1,x,max_rho_upper,argmax,cylinder_tail_upper,c_K_upper, 8 decimals
-  // rounded to nearest: add 1e-8
-  for (auto& r : read_csv(dir + "/gradient_constants.csv")) CK[std::stoi(r[0])] = parse_dir(r[6], FE_UPWARD) + 1e-8;
+  if (use_exact && ex.empty()) data_error("no " + dir + "/exact_formula.csv (use --no-exact to run without it)");
+  for (auto& r : ex) {
+    if (r.size() != 4) data_error("exact_formula.csv: a row without 4 columns");
+    if (!EXACT.emplace(std::pair{std::stol(r[0]), std::stoull(r[1])}, std::pair{r[2], r[3]}).second)
+      data_error("exact_formula.csv: duplicate cell " + r[0] + "," + r[1]);
+  }
+  auto fo = read_csv(dir + "/formula_cells.csv");
+  if (use_exact && fo.empty()) data_error("no " + dir + "/formula_cells.csv (use --no-exact to run without it)");
+  for (auto& r : fo) {
+    if (r.size() != 4) data_error("formula_cells.csv: a row without 4 columns");
+    if (!FORMULA.emplace(std::pair{std::stol(r[0]), std::stoull(r[1])}, r[2]).second)
+      data_error("formula_cells.csv: duplicate cell " + r[0] + "," + r[1]);
+  }
+  // columns K,s1,x,max_rho_upper,argmax,cylinder_tail_upper,c_K_upper, 8 decimals rounded up
+  // (scripts/gradient_bound_data.py constants); 1e-8 more is kept as a margin for older files
+  auto gc = read_csv(dir + "/gradient_constants.csv");
+  if (gc.empty()) data_error("no " + dir + "/gradient_constants.csv");
+  for (auto& r : gc) {
+    if (r.size() != 7) data_error("gradient_constants.csv: a row without 7 columns");
+    if (!CK.emplace(std::stoi(r[0]), parse_dir(r[6], FE_UPWARD) + 1e-8).second)
+      data_error("gradient_constants.csv: duplicate K " + r[0]);
+  }
 }
 
 // ---------------------------------------------------------------- one cell
@@ -591,8 +619,17 @@ void self_check() {
   std::fesetround(FE_DOWNWARD);
   double dn = one / three;
   std::fesetround(FE_UPWARD);
-  if (!(up > dn)) {
-    std::cerr << "rounding modes are not honoured; refusing to run\n";
+  volatile double two = 2;
+  double sq_up = std::sqrt(two);
+  std::fesetround(FE_DOWNWARD);
+  double sq_dn = std::sqrt(two);
+  std::fesetround(FE_UPWARD);
+  // The doubles nearest to ln 2 and e lie below the true values (0.6931471805599452862... < ln 2,
+  // 2.7182818284590450908 < e), so the widened results must exceed them.
+  const bool widened = log_up(2.0) > 0.6931471805599452862 && log_dn(2.0) < 0.6931471805599453094 &&
+                       exp_up(1.0) > 2.7182818284590450908 && exp_dn(1.0) < 2.7182818284590452354;
+  if (!(up > dn) || !(sq_up > sq_dn) || !widened) {
+    std::cerr << "rounding modes or the widened log/exp are not as assumed; refusing to run\n";
     std::exit(3);
   }
 }
@@ -617,7 +654,7 @@ int main(int argc, char** argv) {
     std::cerr << "usage: gradient_tplus cell <n> <m> | cells | grid [out.csv]  [--no-exact] [--data dir]\n";
     return 2;
   }
-  read_data(dir);
+  read_data(dir, use_exact);
   build_tables();
   if (args[0] == "cell" && args.size() == 3) {
     long n = std::stol(args[1]);

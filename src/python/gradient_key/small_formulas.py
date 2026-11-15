@@ -38,7 +38,7 @@ from fractions import Fraction
 from math import comb, factorial
 from pathlib import Path
 
-from gradient_key.gradient_bound import complete_cost
+from gradient_key.gradient_bound import complete_cost, crt_combine
 
 
 def falling(x: int, m: int) -> int:
@@ -77,7 +77,8 @@ def types(m: int) -> list[int]:
 
 def direct_coefficients(m: int) -> dict[int, Fraction]:
     """The `a_j` from the ordered tuples of types; practical for `m <= 4` only (it enumerates `M!` tuples)."""
-    assert 2 <= m <= 4, f"got [{m}]"
+    if not (2 <= m <= 4):
+        raise ValueError(f"got [{m}]")
     ts = types(m)
     c_total = complete_cost(m) * m
     b: dict[int, Fraction] = {}
@@ -104,14 +105,16 @@ def numerator(coeffs: dict[int, Fraction], n: int) -> Fraction:
 
 def excess(coeffs: dict[int, Fraction], m: int, n: int) -> Fraction:
     """`t_{n,m}(G) - C(m)` from the coefficients; needs `m <= 2^n`."""
-    assert 2 <= m <= 2**n, f"got n={n}, m={m}"
+    if not (2 <= m <= 2**n):
+        raise ValueError(f"got n={n}, m={m}")
     return numerator(coeffs, n) / falling(2**n, m)
 
 
 def fit_coefficients(values: list[Fraction], m: int) -> dict[int, Fraction]:
     """Solve for `a_1..a_M` from `N(0), ..., N(M-1)` by Lagrange interpolation on the nodes `2j`."""
     big_m = 2 ** (m - 1)
-    assert len(values) >= big_m, f"need {big_m} values, got [{len(values)}]"
+    if not (len(values) >= big_m):
+        raise ValueError(f"need {big_m} values, got [{len(values)}]")
     master = [1]
     for j in range(1, big_m + 1):
         nxt = [0] * (len(master) + 1)
@@ -142,18 +145,8 @@ def leading_term(coeffs: dict[int, Fraction], m: int) -> tuple[int, Fraction, Fr
 
 
 def _combine(line: str) -> tuple[int, int, int]:
-    """`(n, m, value)` from one "formula" line of the engine: residues combined by Chinese remainders, the last prime a check."""
-    fields = line.strip().split(",")
-    n, m = int(fields[0]), int(fields[1])
-    pairs = [tuple(map(int, x.split(":"))) for x in fields[4:]]
-    value, modulus = 0, 1
-    for prime, residue in pairs[:-1]:
-        value += modulus * (((residue - value) * pow(modulus, -1, prime)) % prime)
-        modulus *= prime
-    assert value % pairs[-1][0] == pairs[-1][1], f"spare prime disagrees at n={n}, m={m}"
-    tables = falling(2**n, m)
-    assert tables <= value <= (m - 1) * tables < modulus, f"reconstruction out of range at n={n}, m={m}"
-    return n, m, value
+    """`(n, m, value)` from one "formula" line of the engine (strict; see :func:`gradient_key.gradient_bound.crt_combine`)."""
+    return crt_combine(line)
 
 
 def _threads() -> int:
@@ -167,7 +160,8 @@ def engine_depth_sums(n_max: int, m: int, engine: Path, threads: int | None = No
     sums = {}
     for line in out.splitlines():
         n, mm, value = _combine(line)
-        assert mm == m, f"got m={mm}, want [{m}]"
+        if not (mm == m):
+            raise ValueError(f"got m={mm}, want [{m}]")
         sums[n] = value
     return sums
 
@@ -199,7 +193,8 @@ def formula_for(m: int, engine: Path, extra: int = 8, threads: int | None = None
     values = engine_excess_numerators(big_m + extra - 1, m, engine, threads)
     coeffs = fit_coefficients(values[:big_m], m)
     for n in range(big_m, big_m + extra):
-        assert numerator(coeffs, n) == values[n], f"check fails at n={n}, m={m}"
+        if not (numerator(coeffs, n) == values[n]):
+            raise ValueError(f"check fails at n={n}, m={m}")
     j, a, r = leading_term(coeffs, m) if coeffs else (0, Fraction(0), Fraction(0))
     return {"m": m, "types": big_m, "checked_to_n": big_m + extra - 1, "coefficients": {str(k): str(v) for k, v in coeffs.items()},
             "leading": {"J": j, "A": str(a), "rate": str(r)}}
@@ -305,7 +300,8 @@ def closed_form_excess(n: int, m: int) -> tuple[Fraction, str] | None:
     ((Fraction(1, 35), 'r = n+1'), (Fraction(18, 5005), 'r = n+2'))
     """
     N = 1 << n
-    assert 2 <= m <= N, f"got n={n}, m={m}"
+    if not (2 <= m <= N):
+        raise ValueError(f"got n={n}, m={m}")
     r = N - m
     if r <= n:
         return Fraction(0), "r <= n"
@@ -332,7 +328,8 @@ def exact_values_md(path: Path, n_max: int, m_min: int, m_max: int = 32) -> str:
             cf = closed_form_excess(n, m)
             if cf is not None:
                 t = complete_cost(m) + cf[0]
-                assert (n, m) not in stored or stored[n, m] == t, f"closed form disagrees with the path formula at {(n, m)}"
+                if not ((n, m) not in stored or stored[n, m] == t):
+                    raise ValueError(f"closed form disagrees with the path formula at {(n, m)}")
                 closed.append((n, m, cf[0], cf[1]))
             elif (n, m) in stored:
                 computed.append((n, m, stored[n, m]))

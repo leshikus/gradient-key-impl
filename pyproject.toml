@@ -20,3 +20,4 @@ where = ["src/python"]
 testpaths = ["tests"]
 pythonpath = ["src/python"]
 addopts = "-m 'not slow'"
+markers = ["slow: long checks, run with -m slow"]

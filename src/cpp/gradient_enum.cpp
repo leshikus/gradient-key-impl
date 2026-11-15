@@ -23,6 +23,9 @@
 // Classes are printed in lexicographic order of (i, sizes, rows).
 //
 // SPDX-License-Identifier: MIT
+#include <optional>
+#include <cstring>
+#include <charconv>
 #include <algorithm>
 #include <atomic>
 #include <bit>
@@ -199,6 +202,12 @@ int run(bool sym, int n, int m, int threads) {
     std::println(stderr, "need 1 <= n <= 20, 2 <= m <= 40, threads >= 1");
     return 2;
   }
+  // Exact u128 arithmetic: the weights sum to 2^(nm), depth sums are below m 2^(nm), and (m-1)! must fit.
+  // Require n m + bit_length(m) <= 126 and m <= 34 (33! < 2^123); larger cells are out of reach anyway.
+  if (n * m + std::bit_width(static_cast<unsigned>(m)) > 126 || m > 34) {
+    std::println(stderr, "n m too large for exact 128-bit counts: need n*m + bit_length(m) <= 126 and m <= 34");
+    return 2;
+  }
   const u64 words = u64{1} << n;
   // Tasks: the first one or two free columns.
   std::vector<std::pair<u64, u64>> tasks;
@@ -283,10 +292,25 @@ int run(bool sym, int n, int m, int threads) {
 
 }  // namespace
 
+// A whole decimal int, or nullopt (std::atoi accepts "12abc" and maps garbage to 0).
+std::optional<int> parse_int(const char* s) {
+  int v = 0;
+  const char* end = s + std::strlen(s);
+  auto [p, ec] = std::from_chars(s, end, v);
+  if (ec != std::errc{} || p != end) return std::nullopt;
+  return v;
+}
+
 int main(int argc, char** argv) {
   const std::string cmd = argc > 1 ? argv[1] : "";
-  if ((cmd == "brute" || cmd == "sym") && argc == 5)
-    return run(cmd == "sym", std::atoi(argv[2]), std::atoi(argv[3]), std::atoi(argv[4]));
+  if ((cmd == "brute" || cmd == "sym") && argc == 5) {
+    auto n = parse_int(argv[2]), m = parse_int(argv[3]), t = parse_int(argv[4]);
+    if (!n || !m || !t) {
+      std::println(stderr, "n, m and threads must be integers");
+      return 2;
+    }
+    return run(cmd == "sym", *n, *m, *t);
+  }
   std::println(stderr, "usage: gradient_enum brute|sym n m threads");
   return 2;
 }

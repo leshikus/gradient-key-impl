@@ -42,6 +42,22 @@ from math import comb
 import mpmath
 from mpmath import iv
 
+
+def _restore_iv_prec(f):
+    """Run ``f`` and restore the global ``mpmath.iv.prec`` it sets (callers keep their own precision)."""
+    import functools
+
+    @functools.wraps(f)
+    def g(*args, **kwargs):
+        saved = iv.prec
+        try:
+            return f(*args, **kwargs)
+        finally:
+            iv.prec = saved
+
+    return g
+
+
 __all__ = [
     "gradient_cost",
     "exact_average",
@@ -55,6 +71,7 @@ __all__ = [
     "fail_probability",
     "theorem1_excess_bound",
     "chain",
+    "crt_combine",
     "chain_upper",
     "tail_mu",
     "best_tail_alpha",
@@ -67,6 +84,12 @@ __all__ = [
 
 
 # ---------------------------------------------------------------- exact small values
+
+
+def _check_cell(n, m):
+    """Raise ValueError unless n >= 1 and 1 <= m <= 2^n (otherwise no table has distinct columns)."""
+    if not (isinstance(n, int) and isinstance(m, int) and n >= 1 and 1 <= m <= 2**n):
+        raise ValueError(f"need integers n >= 1 and 1 <= m <= 2^n, got n={n}, m={m}")
 
 
 def gradient_cost(columns, n):
@@ -91,6 +114,10 @@ def gradient_cost(columns, n):
         Fraction(5, 3)
     """
     m = len(columns)
+    if n < 1 or m < 1:
+        raise ValueError(f"need n >= 1 and at least one column, got n={n}, m={m}")
+    if any(not 0 <= c < 2**n for c in columns):
+        raise ValueError("a column is not an n-bit word")
 
     def depth_sum(cols):
         s = len(cols)
@@ -128,6 +155,7 @@ def exact_average(n, m):
         >>> exact_average(3, 5) == Fraction(12, 5) + Fraction(2, 5) * quality_le1_probability(3, 5)
         True
     """
+    _check_cell(n, m)
     words = range(2**n)
     total = Fraction(0)
     count = 0
@@ -172,7 +200,7 @@ def path_formula(n, m):
         >>> path_formula(20, 3)
         Fraction(5, 3)
     """
-
+    _check_cell(n, m)
     tables = math.prod(2**n - i for i in range(m))
     total = sum(mult * coef * fn for mult, coef, fn in path_formula_terms(n, m).values())
     return Fraction(total, tables)
@@ -420,6 +448,74 @@ def chain(b, smax, skip=True):
     return r
 
 
+def crt_combine(line):
+    r"""
+    Return ``(n, m, T)`` from one ``formula`` line of the engine ``gradient_bound``: ``n,m,a,b,p1:r1,...,pk:rk``.
+
+    The residues modulo all primes but the last are combined by Chinese remainders; the last prime is a check of
+    the arithmetic. ``T = (2^n)_m t_{n,m}(G)`` must satisfy ``(2^n)_m <= T <= (m-1)(2^n)_m < modulus``. Every
+    check raises ``ValueError`` (not ``assert``, which ``python -O`` removes).
+
+    EXAMPLES::
+
+        >>> crt_combine("3,4,4,14,4611686018427387847:3408,4611686018427387817:3408")
+        (3, 4, 3408)
+        >>> crt_combine("3,4,4,14,4611686018427387847:3408,4611686018427387817:3409")
+        Traceback (most recent call last):
+        ...
+        ValueError: spare prime disagrees at n=3, m=4
+    """
+    fields = line.strip().split(",")
+    if len(fields) < 6:
+        raise ValueError(f"need n,m,a,b and at least two residues: {line!r}")
+    try:
+        n, m = int(fields[0]), int(fields[1])
+        pairs = []
+        for x in fields[4:]:
+            p_, r_ = x.split(":")
+            pairs.append((int(p_), int(r_)))
+    except ValueError as e:
+        raise ValueError(f"malformed engine line {line!r}") from e
+    if not (n >= 1 and 2 <= m <= 2**n):
+        raise ValueError(f"cell out of range: n={n}, m={m}")
+    primes = [q for q, _ in pairs]
+    for i, (q, r) in enumerate(pairs):
+        if q < 2 or not 0 <= r < q:
+            raise ValueError(f"bad residue {r} mod {q}")
+        for q2 in primes[:i]:
+            if math.gcd(q, q2) != 1:
+                raise ValueError(f"moduli {q2} and {q} are not coprime")
+    value, modulus = 0, 1
+    for prime, residue in pairs[:-1]:
+        value += modulus * (((residue - value) * pow(modulus, -1, prime)) % prime)
+        modulus *= prime
+    if value % pairs[-1][0] != pairs[-1][1]:
+        raise ValueError(f"spare prime disagrees at n={n}, m={m}")
+    tables = 1
+    for i in range(m):
+        tables *= 2**n - i
+    if not tables <= value <= (m - 1) * tables < modulus:
+        raise ValueError(f"reconstruction out of range at n={n}, m={m}")
+    return n, m, value
+
+
+@_restore_iv_prec
+def _upper(x):
+    """The upper endpoint of the interval ``x`` as an exact ``mpf`` (no rounding to ``mp.prec``).
+
+    ``mpmath.mpf(x.b)`` would round the endpoint to the nearest number of the working precision, which
+    can lie below it; ``make_mpf`` keeps the dyadic endpoint exactly.
+
+        >>> from fractions import Fraction
+        >>> from mpmath import libmp
+        >>> iv.prec = 64
+        >>> Fraction(*libmp.to_rational(_upper(iv.mpf(1) / 3)._mpf_)) >= Fraction(1, 3)
+        True
+    """
+    return mpmath.mp.make_mpf(x._mpi_[1])
+
+
+@_restore_iv_prec
 def chain_upper(b, s0, prec=64):
     r"""
     Return rigorous upper bounds for `r_b(1), \dots, r_b(s_0)` (skipping version).
@@ -456,9 +552,10 @@ def chain_upper(b, s0, prec=64):
             hq = -(x * iv.log(x) + y * iv.log(y)) / ln2
             tot += pq * (one - hq + x * lo[q] + y * lo[s - q])
         lo[s] = tot / (one - cb[1])
-    return [mpmath.mpf(v.b) for v in lo]
+    return [_upper(v) for v in lo]
 
 
+@_restore_iv_prec
 def tail_mu(s0, alpha):
     r"""
     Return a rigorous upper bound for the constant `\mu` of the tail lemma:
@@ -478,7 +575,7 @@ def tail_mu(s0, alpha):
     t = iv.mpf(s0 + 1)
     phi = iv.mpf(0.25) ** (1 - a) + iv.mpf(0.75) ** (1 - a) - 1
     val = t ** (a - 1) / (phi * (1 - 2 * iv.exp(-t / 8)))
-    return mpmath.mpf(val.b)
+    return _upper(val)
 
 
 def best_tail_alpha(s0):
@@ -552,6 +649,7 @@ def rho(kappa, smax):
     return r
 
 
+@_restore_iv_prec
 def rho_upper(kappa, smax, prec=64):
     r"""
     Return rigorous upper bounds for :func:`rho`, as a list of ``mpf``.
@@ -574,11 +672,12 @@ def rho_upper(kappa, smax, prec=64):
             y = one - x
             hk = -(x * iv.log(x) + y * iv.log(y)) / ln2
             v = one - hk + x * up[k] + y * up[s - k]
-            best = max(best, mpmath.mpf(v.b))
+            best = max(best, _upper(v))
         up[s] = best
     return up
 
 
+@_restore_iv_prec
 def cylinder_tail(s1, x):
     r"""
     Return `4x/(s_1(1-\theta))` with `\theta = 1/2 + \sqrt{x/s_1}` (rigorous upper bound).
@@ -593,7 +692,7 @@ def cylinder_tail(s1, x):
     """
     iv.prec = 64
     th = iv.mpf(0.5) + iv.sqrt(iv.mpf(x) / s1)
-    return mpmath.mpf((4 * iv.mpf(x) / (s1 * (1 - th))).b)
+    return _upper(4 * iv.mpf(x) / (s1 * (1 - th)))
 
 
 def large_failure_log2(n, m, s1, x):

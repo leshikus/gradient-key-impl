@@ -9,11 +9,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wno-sign-conversion)
 
-# One executable per source file: gradient_bound, gradient_enum, gradient_tplus.
-file(GLOB engine_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
-foreach(source IN LISTS engine_sources)
-  get_filename_component(engine ${source} NAME_WE)
-  add_executable(${engine} ${source})
+# One executable per source file, listed explicitly (no glob: a stray .cpp must not become an engine).
+foreach(engine IN ITEMS gradient_bound gradient_enum gradient_tplus)
+  add_executable(${engine} ${engine}.cpp)
 endforeach()
 
 # gradient_tplus relies on the upward rounding mode set at run time.
