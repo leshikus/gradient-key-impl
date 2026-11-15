@@ -3,6 +3,7 @@
 
     .venv/bin/python scripts/small_formulas_data.py <max_m>      # needs build/cpp/gradient_bound
     .venv/bin/python scripts/small_formulas_data.py tex          # writes small_tables.tex to $ARTICLE_DIR
+    .venv/bin/python scripts/small_formulas_data.py md           # data/small/formulas.md and exact_values.md
 
 Every number is an exact rational; the fit for each `m` is checked on further values of `n`.
 """
@@ -18,6 +19,8 @@ sys.path.insert(0, str(ROOT / "src" / "python"))
 
 from gradient_key.small_formulas import (  # noqa: E402
     engine_excess_numerator,
+    exact_values_md,
+    formulas_md,
     falling,
     formula_for,
     formula_tex,
@@ -52,12 +55,19 @@ def tex() -> None:
     for m in (4, 5, 6):
         parts.append(r"\newcommand{\smallformula%s}{%s}" % ("".join("four five six".split()[m - 4:m - 3]), formula_tex(m, load_formula(DATA, m))))
     (art / "small_formulas.tex").write_text("\n".join(parts) + "\n")
-    (art / "small_table_m.tex").write_text(table_m_tex(DATA, range(4, 11)))
+    (art / "small_table_m.tex").write_text(table_m_tex(DATA, range(4, 13)))
     (art / "small_table_n.tex").write_text(table_n_tex(DATA / "fixed_n.csv"))
+
+
+def md() -> None:
+    (DATA / "formulas.md").write_text(formulas_md(DATA, range(2, 13)))
+    (DATA / "exact_values.md").write_text(exact_values_md(ROOT / "data" / "gradient-bound" / "exact_formula.csv", 12, 13))
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["tex"]:
         tex()
+    elif sys.argv[1:] == ["md"]:
+        md()
     else:
         main(int(sys.argv[1]))

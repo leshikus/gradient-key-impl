@@ -3,7 +3,7 @@
 Code, tests and data of the article *The gradient key on random tables* (private repository `leshikus/gradient-key`, checked out next to this one). MIT licence.
 The code was moved here from `leshikus/keytrees`; the history is there.
 
-- `src/cpp/`: engines in C++23 (`gradient_bound`: exact path formula; `gradient_enum`: enumeration; `gradient_tplus`: interval checks).
+- `src/cpp/`: engines in C++23 (`gradient_bound`: exact path formula, `formula-all` gives every `n <= nmax` in one parallel pass; `gradient_enum`: enumeration; `gradient_tplus`: interval checks).
 - `src/python/gradient_key/`: everything else, with doctests.
 - `scripts/`: regenerate the data (`gradient_bound_data.py`, `gradient_analytic_9_data.py`) and re-check the certificates (`verify_certificates.py`).
 - `tests/`: checks of the numbers in the article. `data/gradient-bound/`: the data behind every table.

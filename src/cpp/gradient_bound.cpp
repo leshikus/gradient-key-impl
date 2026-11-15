@@ -19,6 +19,10 @@
 //                              residues modulo 62-bit primes (combined by
 //                              scripts/gradient_bound_data.py);
 //                              prints "n,m,paths,tuples,p:r,p:r,..."
+//   formula-all <nmax> <m> <threads>
+//                              the same for every n <= nmax in one pass over the
+//                              chains: the row DP after r rows is the count for n = r;
+//                              prints one "formula" line per n with m <= 2^n
 //   chain <b> <Smax> <out.csv> [charge]
 //                              the recursion r_b(s) of the article, in double
 //                              precision; with "charge" a group without a
@@ -181,6 +185,7 @@ struct Part {
 
 struct Formula {
   int n = 0, m = 0;
+  bool all = false;  // formula-all: n is nmax, and acc keeps one value per row count
   std::vector<Mont> mod;
   std::vector<std::vector<Part>> parts;  // parts[a]: integer partitions of a
   std::vector<std::vector<u64>> binom;   // exact binomials, m <= 62
@@ -240,7 +245,7 @@ struct Formula {
     std::vector<std::vector<u64>> f;                              // per prime dp
     std::vector<u64> wm;
     std::vector<std::vector<u64>> cm;
-    std::vector<u64> acc;
+    std::vector<std::vector<u64>> acc;  // acc[prime][0], or acc[prime][rows] when "all"
     u64 tuples = 0;
   };
 
@@ -319,7 +324,7 @@ struct Formula {
       wsum[i] = v;
       any = any || v;
     }
-    if (d > 0 && !any) {
+    if (d > 0 && !any && !all) {
       // Rows are all constrained away; only chosen rows could remain, and n > d needs free rows.
       if (n > d) return;
     }
@@ -346,7 +351,7 @@ struct Formula {
       for (int row = 0; row < n; ++row) {
         for (std::size_t mask = full; mask-- > 0;) {
           const int pc = std::popcount(mask);
-          if (pc > row + 1 || pc < d - (n - row - 1)) {
+          if (pc > row + 1 || (!all && pc < d - (n - row - 1))) {
             f[mask] = 0;
             continue;
           }
@@ -361,13 +366,14 @@ struct Formula {
           }
           f[mask] = v;
         }
+        if (all) w.acc[pi][static_cast<std::size_t>(row) + 1] = md.add(w.acc[pi][static_cast<std::size_t>(row) + 1], md.mul(f[full - 1], coef[pi]));
       }
-      w.acc[pi] = md.add(w.acc[pi], md.mul(f[full - 1], coef[pi]));
+      if (!all) w.acc[pi][0] = md.add(w.acc[pi][0], md.mul(f[full - 1], coef[pi]));
     }
   }
 
   // Adds the chain's contribution to total.
-  void chain(const std::vector<int>& s, std::vector<u64>& total, u64& tuples) {
+  void chain(const std::vector<int>& s, std::vector<std::vector<u64>>& total, u64& tuples) {
     Work w;
     w.d = static_cast<int>(s.size()) - 1;
     const int d = w.d;
@@ -385,7 +391,7 @@ struct Formula {
     w.wm.assign(full, 0);
     w.cm.resize(static_cast<std::size_t>(d));
     for (int j = 0; j < d; ++j) w.cm[static_cast<std::size_t>(j)].assign(std::size_t{1} << j, 0);
-    w.acc.assign(mod.size(), 0);
+    w.acc.assign(mod.size(), std::vector<u64>(all ? static_cast<std::size_t>(n) + 1 : 1, 0));
     std::vector<u64> one(mod.size());
     for (std::size_t i = 0; i < mod.size(); ++i) one[i] = mod[i].in(1);
     for (const Part& inner : parts[static_cast<std::size_t>(s.back())]) {
@@ -399,7 +405,7 @@ struct Formula {
       for (int j = 0; j < d; ++j)
         mult = mod[i].mul(mult, mod[i].in(binom[static_cast<std::size_t>(s[static_cast<std::size_t>(j)] - 1)]
                                               [static_cast<std::size_t>(s[static_cast<std::size_t>(j) + 1] - 1)]));
-      total[i] = mod[i].add(total[i], mod[i].mul(mult, w.acc[i]));
+      for (std::size_t k = 0; k < w.acc[i].size(); ++k) total[i][k] = mod[i].add(total[i][k], mod[i].mul(mult, w.acc[i][k]));
     }
     tuples += w.tuples;
   }
@@ -427,16 +433,22 @@ struct Formula {
   }
 };
 
-int cmd_formula(int n, int m, int threads) {
-  if (n < 1 || m < 2 || m > 33 || (n < 40 && m > (1LL << n))) {
-    std::println(stderr, "formula: need 2 <= m <= min(33, 2^n)");
+// Primes needed for n rows: enough for the sum, plus one spare as a check.
+int primes_for(int n, int m) {
+  const double bits = static_cast<double>(m) * n + std::log2(static_cast<double>(m)) + 2;
+  return static_cast<int>(std::ceil(bits / 61.0)) + 1;
+}
+
+int cmd_formula(int n, int m, int threads, bool all) {
+  if (n < 1 || m < 2 || m > 33 || (n < 40 && m > (1LL << n)) || threads < 1) {
+    std::println(stderr, "formula: need 2 <= m <= min(33, 2^n), threads >= 1");
     return 2;
   }
-  const double bits = static_cast<double>(m) * n + std::log2(static_cast<double>(m)) + 2;
-  const int nprimes = static_cast<int>(std::ceil(bits / 61.0)) + 1;  // one spare, as a check
+  const int nprimes = primes_for(n, m);
   Formula fm;
   fm.n = n;
   fm.m = m;
+  fm.all = all;
   for (u64 c = (u64{1} << 62) - 1; static_cast<int>(fm.mod.size()) < nprimes; c -= 2)
     if (is_prime(c)) fm.mod.emplace_back(c);
   fm.binom.assign(static_cast<std::size_t>(m) + 1, std::vector<u64>(static_cast<std::size_t>(m) + 1, 0));
@@ -459,7 +471,9 @@ int cmd_formula(int n, int m, int threads) {
   };
   std::sort(chains.begin(), chains.end(), [&](const auto& x, const auto& y) { return weight(x) > weight(y); });
   std::atomic<std::size_t> next{0};
-  std::vector<std::vector<u64>> totals(static_cast<std::size_t>(threads), std::vector<u64>(fm.mod.size(), 0));
+  const std::size_t outs = all ? static_cast<std::size_t>(n) + 1 : 1;
+  std::vector<std::vector<std::vector<u64>>> totals(static_cast<std::size_t>(threads),
+                                                    std::vector<std::vector<u64>>(fm.mod.size(), std::vector<u64>(outs, 0)));
   std::vector<u64> tuples(static_cast<std::size_t>(threads), 0);
   {
     std::vector<std::jthread> pool;
@@ -469,13 +483,19 @@ int cmd_formula(int n, int m, int threads) {
           fm.chain(chains[i], totals[static_cast<std::size_t>(t)], tuples[static_cast<std::size_t>(t)]);
       });
   }
-  std::string line = std::format("{},{},{},{}", n, m, chains.size(), std::accumulate(tuples.begin(), tuples.end(), u64{0}));
-  for (std::size_t i = 0; i < fm.mod.size(); ++i) {
-    u64 v = 0;
-    for (int t = 0; t < threads; ++t) v = fm.mod[i].add(v, totals[static_cast<std::size_t>(t)][i]);
-    line += std::format(",{}:{}", fm.mod[i].p, fm.mod[i].out(v));
+  const u64 ntuples = std::accumulate(tuples.begin(), tuples.end(), u64{0});
+  for (std::size_t k = 0; k < outs; ++k) {
+    const int rows = all ? static_cast<int>(k) : n;
+    if (rows < 1 || (rows < 40 && m > (1LL << rows))) continue;
+    std::string line = std::format("{},{},{},{}", rows, m, chains.size(), ntuples);
+    const std::size_t np = all ? static_cast<std::size_t>(primes_for(rows, m)) : fm.mod.size();
+    for (std::size_t i = 0; i < np; ++i) {
+      u64 v = 0;
+      for (int t = 0; t < threads; ++t) v = fm.mod[i].add(v, totals[static_cast<std::size_t>(t)][i][k]);
+      line += std::format(",{}:{}", fm.mod[i].p, fm.mod[i].out(v));
+    }
+    std::println("{}", line);
   }
-  std::println("{}", line);
   return 0;
 }
 
@@ -529,9 +549,10 @@ int cmd_chain(int b, int smax, const char* path, bool charge) {
 int main(int argc, char** argv) {
   const std::string cmd = argc > 1 ? argv[1] : "";
   if (cmd == "exact" && argc == 4) return cmd_exact(std::atoi(argv[2]), std::atoi(argv[3]));
-  if (cmd == "formula" && argc == 5) return cmd_formula(std::atoi(argv[2]), std::atoi(argv[3]), std::atoi(argv[4]));
+  if (cmd == "formula" && argc == 5) return cmd_formula(std::atoi(argv[2]), std::atoi(argv[3]), std::atoi(argv[4]), false);
+  if (cmd == "formula-all" && argc == 5) return cmd_formula(std::atoi(argv[2]), std::atoi(argv[3]), std::atoi(argv[4]), true);
   if (cmd == "chain" && (argc == 5 || (argc == 6 && std::string(argv[5]) == "charge")))
     return cmd_chain(std::atoi(argv[2]), std::atoi(argv[3]), argv[4], argc == 6);
-  std::println(stderr, "usage: gradient_bound exact n m | formula n m threads | chain b Smax out.csv [charge]");
+  std::println(stderr, "usage: gradient_bound exact n m | formula n m threads | formula-all nmax m threads | chain b Smax out.csv [charge]");
   return 2;
 }

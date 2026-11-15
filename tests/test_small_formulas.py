@@ -14,7 +14,7 @@ from gradient_key.gradient_bound import complete_cost
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data" / "small"
-MS = range(4, 11)
+MS = range(4, 13)
 
 
 def test_doctests():
@@ -39,7 +39,7 @@ def test_formula_matches_brute_force_enumeration():
     cells = 0
     for r in csv.DictReader(open(ROOT / "data" / "gradient-bound" / "exact.csv")):
         n, m = int(r["n"]), int(r["m"])
-        if 4 <= m <= 10:
+        if 4 <= m <= 12:
             t = Fraction(int(r["numerator"]), int(r["denominator"]))
             assert t == complete_cost(m) + sf.excess(sf.load_formula(DATA, m), m, n), f"n={n}, m={m}"
             cells += 1
@@ -50,7 +50,7 @@ def test_formula_matches_path_formula_cells_beyond_the_fit():
     cells = 0
     for r in csv.DictReader(open(ROOT / "data" / "gradient-bound" / "exact_formula.csv")):
         n, m = int(r["n"]), int(r["m"])
-        if 4 <= m <= 10 and n > 2 ** (m - 1) // 2:
+        if 4 <= m <= 12 and n > 2 ** (m - 1) // 2:
             assert Fraction(int(r["numerator"]), int(r["denominator"])) == complete_cost(m) + sf.excess(sf.load_formula(DATA, m), m, n)
             cells += 1
     assert cells > 0
@@ -60,7 +60,7 @@ def test_formula_matches_path_formula_cells_beyond_the_fit():
 def test_leading_term_is_the_limit(m):
     raw = sf.load_formula(DATA, m)
     j, a, r = sf.leading_term(raw, m)
-    n = 300
+    n = max(300, 60 * j)  # the next term falls like ((J-1)/J)^n
     assert abs(sf.excess(raw, m, n) / (a * r**n) - 1) < Fraction(1, 10**9)
     assert all(k <= j for k in raw)
 
@@ -76,7 +76,7 @@ def test_fixed_rows_match_the_formulas_and_vanish_at_the_complete_table():
         assert sorted(cells) == list(range(2, 2**n + 1)), f"n={n}"
         assert cells[2**n] == 0, f"n={n}"
         for m, v in cells.items():
-            if 4 <= m <= 10:
+            if 4 <= m <= 12:
                 assert v == sf.excess(sf.load_formula(DATA, m), m, n), f"n={n}, m={m}"
     assert all(v == 0 for n in (1, 2) for v in rows[n].values())
 
@@ -85,7 +85,7 @@ def test_tables_in_the_article_are_current():
     art = Path(os.environ.get("ARTICLE_DIR", ROOT.parent / "gradient-key"))
     if not (art / "small_table_m.tex").exists():
         pytest.skip("the gradient-key repository is not checked out next to this one")
-    assert (art / "small_table_m.tex").read_text() == sf.table_m_tex(DATA, range(4, 11))
+    assert (art / "small_table_m.tex").read_text() == sf.table_m_tex(DATA, range(4, 13))
     assert (art / "small_table_n.tex").read_text() == sf.table_n_tex(DATA / "fixed_n.csv")
 
 
@@ -97,3 +97,50 @@ def test_rate_of_the_subset_bound_is_sharp_only_for_m_4_and_8():
 
     same = [m for m in MS if sf.leading_term(sf.load_formula(DATA, m), m)[2] == max(1 - beta(s) for s in range(4, m + 1))]
     assert same == [4, 8], f"got [{same}]"
+
+
+ENGINE = ROOT / "build" / "cpp" / "gradient_bound"
+
+
+def reference_sums() -> dict[int, dict[int, int]]:
+    """`engine_reference.csv`: totals of the original `formula` engine, recorded as a regression reference."""
+    out: dict[int, dict[int, int]] = {}
+    for r in csv.DictReader(open(DATA / "engine_reference.csv")):
+        out.setdefault(int(r["m"]), {})[int(r["n"])] = int(r["depth_sum"])
+    return out
+
+
+def test_reference_matches_the_formulas():
+    for m, cells in reference_sums().items():
+        if 4 <= m <= 12:
+            c = sf.load_formula(DATA, m)
+            for n, v in cells.items():
+                assert sf.excess_numerator_from_sum(n, m, v) == sf.numerator(c, n), f"n={n}, m={m}"
+
+
+@pytest.mark.skipif(not ENGINE.exists(), reason="build/cpp/gradient_bound is not built")
+@pytest.mark.parametrize("m", range(2, 13))
+def test_formula_all_matches_the_reference(m):
+    cells = reference_sums()[m]
+    got = sf.engine_depth_sums(max(cells), m, ENGINE)
+    assert {n: got[n] for n in cells} == cells
+    assert min(got) == (m - 1).bit_length() or m == 2
+
+
+@pytest.mark.skipif(not ENGINE.exists(), reason="build/cpp/gradient_bound is not built")
+@pytest.mark.parametrize("n,m", [(5, 7), (12, 10), (40, 12)])
+def test_formula_matches_the_reference(n, m):
+    assert sf.engine_excess_numerator(n, m, ENGINE) == sf.excess_numerator_from_sum(n, m, reference_sums()[m][n])
+
+
+def test_markdown_tables_are_current():
+    assert (DATA / "formulas.md").read_text() == sf.formulas_md(DATA, range(2, 13))
+    assert (DATA / "exact_values.md").read_text() == sf.exact_values_md(ROOT / "data" / "gradient-bound" / "exact_formula.csv", 12, 13)
+
+
+def test_count_of_exact_values_in_the_article():
+    tex = Path(os.environ.get("ARTICLE_DIR", ROOT.parent / "gradient-key")) / "constants.tex"
+    if not tex.exists():
+        pytest.skip("the gradient-key repository is not checked out next to this one")
+    n_big = sum(1 for r in csv.DictReader(open(ROOT / "data" / "gradient-bound" / "exact_formula.csv")) if int(r["n"]) <= 12 and int(r["m"]) > 12)
+    assert rf"\newcommand{{\exactcellsbig}}{{{n_big}}}" in tex.read_text()

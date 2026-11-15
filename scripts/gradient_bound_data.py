@@ -177,6 +177,7 @@ def tex() -> None:
     red = {k: float(v) - math.log2(k[1]) for k, v in t.items()}
     worst = max(red, key=red.get)
     lines.append(rf"\newcommand{{\exactcells}}{{{len(t)}}}")
+    lines.append(rf"\newcommand{{\exactcellsbig}}{{{sum(1 for n, m in t if n <= 12 and m > 12)}}}")  # result (2)
     lines.append(rf"\newcommand{{\exactmaxred}}{{{up(red[worst], 4)}}}")
     lines.append(rf"\newcommand{{\exactmaxat}}{{({worst[0]},{worst[1]})}}")
     tops = {}
