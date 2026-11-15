@@ -42,6 +42,7 @@
 #include <print>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -242,12 +243,22 @@ struct Formula {
     // lists[level][set]: polynomials; set 0 is the free rows, set j+1 the row chosen at level j.
     std::vector<std::vector<std::vector<u64>>> wl;                // wl[depth]: polys for free rows
     std::vector<std::vector<std::vector<std::vector<u64>>>> cl;   // cl[depth][j]: polys for chosen row j
-    std::vector<std::vector<u64>> f;                              // per prime dp
-    std::vector<u64> wm;
-    std::vector<std::vector<u64>> cm;
     std::vector<std::vector<u64>> acc;  // acc[prime][0], or acc[prime][rows] when "all"
+    std::vector<u64> F, WM, CM, V;      // row DP buffers, prime index innermost
     u64 tuples = 0;
+    // The row DP is linear in the coefficient, and many (chain, lambda) give the same DP input (the sums
+    // wsum, csum). Inputs are collected in a window of recent distinct ones, with their coefficients added,
+    // and the DP runs once per entry. Keys are compared in full, so hash collisions cannot change a result.
+    struct KeyHash {
+      std::size_t operator()(const std::vector<u64>& k) const {
+        std::size_t h = 1469598103934665603ULL;
+        for (u64 v : k) h = (h ^ v) * 1099511628211ULL, h ^= h >> 29;
+        return h;
+      }
+    };
+    std::unordered_map<std::vector<u64>, std::vector<u64>, KeyHash> window;  // key -> coefficient per prime
   };
+  static constexpr std::size_t kWindow = 256;
 
   // new = trunc(v * g) to quality <= qmax on size s (qmax may be 0 or negative for "none").
   static void step(const std::vector<u64>& v, const std::vector<u64>& g, int s, int qmax, std::vector<u64>& out) {
@@ -315,7 +326,8 @@ struct Formula {
     auto& W = w.wl[static_cast<std::size_t>(d)];
     auto& C = w.cl[static_cast<std::size_t>(d)];
     // Sums of coefficients; list index bit (d-1-level) is level "level" in processing order.
-    std::vector<u64> wsum(full);
+    std::vector<u64> key(full);
+    u64* wsum = key.data();
     bool any = false;
     for (std::size_t i = 0; i < full; ++i) {
       u64 v = 0;
@@ -328,48 +340,68 @@ struct Formula {
       // Rows are all constrained away; only chosen rows could remain, and n > d needs free rows.
       if (n > d) return;
     }
-    std::vector<std::vector<u64>> csum(static_cast<std::size_t>(d));
     for (int j = 0; j < d; ++j) {
       const auto& list = C[static_cast<std::size_t>(j)];
-      csum[static_cast<std::size_t>(j)].resize(list.size());
       for (std::size_t i = 0; i < list.size(); ++i) {
         u64 v = 0;
         for (u64 c : list[i]) v += c;
-        csum[static_cast<std::size_t>(j)][i] = v;
+        key.push_back(v);
       }
     }
-    for (std::size_t pi = 0; pi < mod.size(); ++pi) {
-      const Mont& md = mod[pi];
-      auto& f = w.f[pi];
-      std::fill(f.begin(), f.begin() + static_cast<std::ptrdiff_t>(full), 0);
-      f[0] = md.in(1);
-      std::vector<u64>& wm = w.wm;
-      for (std::size_t i = 0; i < full; ++i) wm[i] = md.in(wsum[i]);
-      for (int j = 0; j < d; ++j)
-        for (std::size_t i = 0; i < csum[static_cast<std::size_t>(j)].size(); ++i)
-          w.cm[static_cast<std::size_t>(j)][i] = md.in(csum[static_cast<std::size_t>(j)][i]);
-      for (int row = 0; row < n; ++row) {
-        for (std::size_t mask = full; mask-- > 0;) {
-          const int pc = std::popcount(mask);
-          if (pc > row + 1 || (!all && pc < d - (n - row - 1))) {
-            f[mask] = 0;
-            continue;
-          }
-          u64 v = md.mul(f[mask], wm[mask]);
-          for (std::size_t rest = mask; rest; rest &= rest - 1) {
-            const int j = std::countr_zero(rest);
-            const std::size_t before = mask ^ (std::size_t{1} << j);
-            if (f[before]) {
-              const u64 c = w.cm[static_cast<std::size_t>(j)][before & ((std::size_t{1} << j) - 1)];
-              v = md.add(v, md.mul(f[before], c));
-            }
-          }
-          f[mask] = v;
+    auto [it, fresh] = w.window.try_emplace(std::move(key), coef);
+    if (!fresh)
+      for (std::size_t pi = 0; pi < mod.size(); ++pi) it->second[pi] = mod[pi].add(it->second[pi], coef[pi]);
+    if (w.window.size() >= kWindow) flush(w);
+  }
+
+  void flush(Work& w) {
+    for (const auto& [key, coef] : w.window) run_dp(w, key, coef);
+    w.window.clear();
+  }
+
+  // The row DP for one input: key holds wsum (2^d values), then csum[0], ..., csum[d-1] (2^j values each).
+  void run_dp(Work& w, const std::vector<u64>& key, const std::vector<u64>& coef) {
+    // All primes at once, prime index innermost: the Montgomery products of different primes are independent,
+    // so the processor overlaps them. Layout: F[mask*np+p], WM[mask*np+p], CM[(2^j-1+i)*np+p] for csum[j][i].
+    const int d = w.d;
+    const std::size_t full = std::size_t{1} << d;
+    const std::size_t np = mod.size();
+    u64* F = w.F.data();
+    u64* WM = w.WM.data();
+    u64* CM = w.CM.data();
+    u64* V = w.V.data();
+    for (std::size_t i = 0; i < full; ++i)
+      for (std::size_t p = 0; p < np; ++p) WM[i * np + p] = mod[p].in(key[i]);
+    for (std::size_t i = 0; i + 1 < full; ++i)
+      for (std::size_t p = 0; p < np; ++p) CM[i * np + p] = mod[p].in(key[full + i]);
+    std::fill(F, F + full * np, 0);
+    for (std::size_t p = 0; p < np; ++p) F[p] = mod[p].in(1);
+    for (int row = 0; row < n; ++row) {
+      for (std::size_t mask = full; mask-- > 0;) {
+        const int pc = std::popcount(mask);
+        u64* fm = F + mask * np;
+        if (pc > row + 1 || (!all && pc < d - (n - row - 1))) {
+          std::fill(fm, fm + np, 0);
+          continue;
         }
-        if (all) w.acc[pi][static_cast<std::size_t>(row) + 1] = md.add(w.acc[pi][static_cast<std::size_t>(row) + 1], md.mul(f[full - 1], coef[pi]));
+        const u64* wm = WM + mask * np;
+        for (std::size_t p = 0; p < np; ++p) V[p] = mod[p].mul(fm[p], wm[p]);
+        for (std::size_t rest = mask; rest; rest &= rest - 1) {
+          const int j = std::countr_zero(rest);
+          const std::size_t low = (std::size_t{1} << j) - 1;
+          const std::size_t before = mask ^ (std::size_t{1} << j);
+          const u64* fb = F + before * np;
+          const u64* c = CM + (low + (before & low)) * np;
+          for (std::size_t p = 0; p < np; ++p) V[p] = mod[p].add(V[p], mod[p].mul(fb[p], c[p]));
+        }
+        std::copy(V, V + np, fm);
       }
-      if (!all) w.acc[pi][0] = md.add(w.acc[pi][0], md.mul(f[full - 1], coef[pi]));
+      if (all)
+        for (std::size_t p = 0; p < np; ++p)
+          w.acc[p][static_cast<std::size_t>(row) + 1] = mod[p].add(w.acc[p][static_cast<std::size_t>(row) + 1], mod[p].mul(F[(full - 1) * np + p], coef[p]));
     }
+    if (!all)
+      for (std::size_t p = 0; p < np; ++p) w.acc[p][0] = mod[p].add(w.acc[p][0], mod[p].mul(F[(full - 1) * np + p], coef[p]));
   }
 
   // Adds the chain's contribution to total.
@@ -387,10 +419,10 @@ struct Formula {
     w.wl.resize(static_cast<std::size_t>(d) + 1);
     w.cl.assign(static_cast<std::size_t>(d) + 1, std::vector<std::vector<std::vector<u64>>>(static_cast<std::size_t>(d)));
     const std::size_t full = std::size_t{1} << d;
-    w.f.assign(mod.size(), std::vector<u64>(full, 0));
-    w.wm.assign(full, 0);
-    w.cm.resize(static_cast<std::size_t>(d));
-    for (int j = 0; j < d; ++j) w.cm[static_cast<std::size_t>(j)].assign(std::size_t{1} << j, 0);
+    w.F.assign(full * mod.size(), 0);
+    w.WM.assign(full * mod.size(), 0);
+    w.CM.assign(full * mod.size(), 0);
+    w.V.assign(mod.size(), 0);
     w.acc.assign(mod.size(), std::vector<u64>(all ? static_cast<std::size_t>(n) + 1 : 1, 0));
     std::vector<u64> one(mod.size());
     for (std::size_t i = 0; i < mod.size(); ++i) one[i] = mod[i].in(1);
@@ -400,6 +432,7 @@ struct Formula {
       for (std::size_t i = 0; i < mod.size(); ++i) c[i] = mod[i].mul(one[i], inner.coef[i]);
       descend(w, d - 1, c);
     }
+    flush(w);
     for (std::size_t i = 0; i < mod.size(); ++i) {
       u64 mult = mod[i].in(1);
       for (int j = 0; j < d; ++j)

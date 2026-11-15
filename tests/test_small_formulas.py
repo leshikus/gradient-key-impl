@@ -144,3 +144,12 @@ def test_count_of_exact_values_in_the_article():
         pytest.skip("the gradient-key repository is not checked out next to this one")
     n_big = sum(1 for r in csv.DictReader(open(ROOT / "data" / "gradient-bound" / "exact_formula.csv")) if int(r["n"]) <= 12 and int(r["m"]) > 12)
     assert rf"\newcommand{{\exactcellsbig}}{{{n_big}}}" in tex.read_text()
+
+
+@pytest.mark.skipif(not ENGINE.exists(), reason="build/cpp/gradient_bound is not built")
+@pytest.mark.parametrize("m", range(4, 13))
+def test_engine_matches_the_exact_formulas(m):
+    """The path-formula engine against the closed formulas for m <= 12, at n beyond the stored reference."""
+    c = sf.load_formula(DATA, m)
+    for n in sorted({(m - 1).bit_length(), 2 * m, 3 * m + 1, 50}):
+        assert sf.engine_excess_numerator(n, m, ENGINE) == sf.numerator(c, n), f"n={n}, m={m}"
