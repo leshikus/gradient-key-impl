@@ -123,7 +123,7 @@ def test_formula_extension_files():
     path = OUT / "formula_out_of_reach.csv"
     if path.exists():
         assert all((int(r["n"]), int(r["m"])) not in t for r in g9.read_csv(path))
-    assert len(t) == 400 + len(runs)
+    assert len(t) >= 400 + len(runs)  # scripts/gradient_bound_data.py exact also adds cells
 
 
 @pytest.mark.skipif(not TEXT.exists(), reason="the gradient-key repository is not checked out next to this one")

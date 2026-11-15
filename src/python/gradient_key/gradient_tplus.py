@@ -13,7 +13,9 @@ The ingredients (see the engine's header and the article):
 - :func:`union_bound` -- Proposition union with requirement `\kappa_j`;
 - :func:`explicit_bound` -- Corollary explicit;
 - :func:`cylinder_bound` -- Proposition cylinder, for a given requirement;
-- :func:`trivial_bound` -- `\min(n, C_{\max}(m))`.
+- :func:`trivial_bound` -- `\min(n, C_{\max}(m))`;
+- :func:`uniform_bound` -- Theorem uniform;
+- :func:`formula_value` -- Proposition small-m, the exact formula for `m \le 12`.
 
 Each returns an ``iv.mpf`` interval that contains the stated bound.
 
@@ -46,6 +48,8 @@ __all__ = [
     "union_bound",
     "explicit_bound",
     "cylinder_bound",
+    "uniform_bound",
+    "formula_value",
 ]
 
 PREC = 160
@@ -297,3 +301,59 @@ def cylinder_bound(n, m, kappa, s1, x):
             cnt = iv.mpf(min(iv.mpf(1).b, (bs * two ** (-d * (s1 + 1))).b))
             large += comb(n, d) * two**d * cnt * w * g ** (n - d)
     return _log2(m) + iv.mpf(mrho) + tail + inv_distinct(n, m) * (small + large)
+
+
+def uniform_bound(n, m):
+    r"""
+    Return the bound of Theorem uniform as an interval, with `l = \lfloor\log m\rfloor`:
+    `l - 1 + m2^{-l} + \sum_{i<l} 2^{i-l}\min\{n/(n-i),\ 2 + 2\ln(2n/(n-i))\}`. Needs `2 \le m \le 2^n`.
+
+    EXAMPLES::
+
+        >>> b = uniform_bound(30, 2**20)
+        >>> 22.5 < float(b.a) <= float(b.b) < 22.6
+        True
+    """
+    assert 2 <= m <= 2**n
+    iv.prec = PREC
+    l = m.bit_length() - 1
+    total = iv.mpf(l - 1) + iv.mpf(m) / iv.mpf(2) ** l
+    for i in range(l):
+        a = iv.mpf(n) / (n - i)
+        b = 2 + 2 * iv.log(2 * a)
+        lo, hi = min(a.a, b.a), min(a.b, b.b)
+        total += iv.mpf([lo, hi]) / iv.mpf(2) ** (l - i)
+    return total
+
+
+def formula_value(n, m, coeffs):
+    r"""
+    Return an interval containing `t_{n,m}(G) = C(m) + \sum_j a_j (2j)^n/(2^n)_m` (Proposition small-m),
+    with the coefficients ``coeffs`` (`j \mapsto a_j`) of ``data/small/formula_m{m}.json``.
+    For `n \le 4096` the value is exact (a degenerate interval of the exact rational, rounded outwards);
+    for larger `n` each term is `a_j (j/2^{m-1})^n / \prod_{k<m}(1 - k2^{-n})` in interval arithmetic.
+
+    EXAMPLES::
+
+        >>> from gradient_key.small_formulas import direct_coefficients
+        >>> b = formula_value(3, 4, direct_coefficients(4))
+        >>> float(b.a) <= 2 + 1 / 35 <= float(b.b)
+        True
+    """
+    assert 2 <= m <= 2**n
+    iv.prec = PREC
+    c = complete_cost(m)
+    if n <= 4096:
+        num = sum(a * (2 * j) ** n for j, a in coeffs.items())
+        fall = 1
+        for k in range(m):
+            fall *= 2**n - k
+        return _iv(c + Fraction(num) / fall)
+    big = 2 ** (m - 1)
+    den = iv.mpf(1)
+    for k in range(1, m):
+        den *= 1 - iv.mpf(k) / iv.mpf(2) ** n
+    total = iv.mpf(0)
+    for j, a in coeffs.items():
+        total += _iv(a) * iv.exp(n * iv.log(iv.mpf(j) / big))
+    return _iv(c) + total / den

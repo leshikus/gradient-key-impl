@@ -29,10 +29,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src" / "python"))
 
 import mpmath  # noqa: E402
+from mpmath import libmp  # noqa: E402
 from mpmath import iv  # noqa: E402
 
 import gradient_key.gradient_bound as gb  # noqa: E402
 import gradient_key.gradient_tplus as gt  # noqa: E402
+from gradient_key.small_formulas import load_formula  # noqa: E402
 
 DATA = ROOT / "data" / "gradient-bound"
 SUMS = DATA / "SHA256SUMS"
@@ -47,7 +49,7 @@ K_NAMES = {20: "cGtwenty", 30: "cGthirty", 40: "cGforty", 60: "cGsixty"}
 B_NAMES = {2: "cbtwo", 3: "cbthree", 4: "cbfour"}
 # t^+ cells of the article's table, one or more per winning ingredient: (n, m) -> printed t^+ - log m
 TPLUS_SAMPLE = {(6, 4): "0.013", (12, 12): "0.082", (48, 8): "0.001", (256, 24): "0.082",
-                (8, 32): "0.600", (16, 24): "0.282", (12, 64): "0.518", (12, 1024): "2.000"}
+                (8, 32): "0.600", (16, 24): "0.282", (12, 64): "0.518", (12, 1024): "2.000", (32, 2**20): "2.306"}
 
 failures: list[str] = []
 
@@ -59,8 +61,18 @@ def check(ok: bool, what: str) -> None:
 
 
 def frac(x) -> Fraction:
-    man, exp = mpmath.mpf(x).man_exp
-    return Fraction(man) * Fraction(2) ** exp
+    """An mpmath number, or a degenerate interval such as ``x.a`` or ``x.b``, as an exact Fraction.
+
+    ``mpmath.mpf(x)`` would round an interval endpoint to the working precision of ``mpmath.mp``, so the
+    endpoint is read exactly from ``_mpi_``.
+    """
+    if hasattr(x, "_mpi_"):
+        lo, hi = x._mpi_
+        assert lo == hi, "pass an endpoint (x.a or x.b), not an interval"
+        p, q = libmp.to_rational(hi)
+        return Fraction(p, q)
+    p, q = libmp.to_rational(mpmath.mpf(x)._mpf_)
+    return Fraction(p, q)
 
 
 def iv_add_upper(*xs) -> Fraction:
@@ -163,6 +175,8 @@ def blocked_constants(full: bool) -> None:
 
 
 def log2_lower(m: int) -> Fraction:
+    if m & (m - 1) == 0:  # exact for powers of two
+        return Fraction(m.bit_length() - 1)
     iv.prec = 120
     return frac((iv.log(iv.mpf(m)) / iv.log(2)).a)
 
@@ -174,8 +188,12 @@ def tplus_sample() -> None:
     for (n, m), printed in TPLUS_SAMPLE.items():
         r = grid[n, m]
         ing = r["ingredient"]
-        if ing == "exact":
+        if ing == "exact" and r["params"] == "formula":
+            upper = frac(gt.formula_value(n, m, load_formula(ROOT / "data" / "small", m)).b)
+        elif ing == "exact":
             upper = exact[n, m]
+        elif ing == "uniform":
+            upper = frac(gt.uniform_bound(n, m).b)
         elif ing == "fixed":
             upper = frac(gt.fixed_bound(n, m).b)
         elif ing == "trivial":

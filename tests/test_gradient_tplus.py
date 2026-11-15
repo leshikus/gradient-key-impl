@@ -15,6 +15,7 @@ from fractions import Fraction
 from pathlib import Path
 
 import mpmath
+from mpmath import libmp
 import pytest
 from mpmath import iv
 
@@ -47,17 +48,30 @@ def engine(*args, stdin=None):
 
 
 def frac(x):
-    """An mpmath binary number as an exact Fraction."""
-    man, exp = mpmath.mpf(x).man_exp
-    return Fraction(man) * Fraction(2) ** exp
+    """An mpmath number, or a degenerate interval such as ``x.a`` or ``x.b``, as an exact Fraction.
+
+    ``mpmath.mpf(x)`` would round an interval endpoint to the working precision of ``mpmath.mp``, so the
+    endpoint is read exactly from ``_mpi_``.
+    """
+    if hasattr(x, "_mpi_"):
+        lo, hi = x._mpi_
+        assert lo == hi, "pass an endpoint (x.a or x.b), not an interval"
+        p, q = libmp.to_rational(hi)
+        return Fraction(p, q)
+    p, q = libmp.to_rational(mpmath.mpf(x)._mpf_)
+    return Fraction(p, q)
 
 
 def log2_upper(m):
+    if m & (m - 1) == 0:  # exact for powers of two
+        return Fraction(m.bit_length() - 1)
     iv.prec = 120
     return frac((iv.log(iv.mpf(m)) / iv.log(2)).b)
 
 
 def log2_lower(m):
+    if m & (m - 1) == 0:  # exact for powers of two
+        return Fraction(m.bit_length() - 1)
     iv.prec = 120
     return frac((iv.log(iv.mpf(m)) / iv.log(2)).a)
 
@@ -70,7 +84,7 @@ def test_doctests():
 def test_grid_cells():
     g = grid()
     assert set(g) == {(n, m) for n in NS for m in MS if m <= 2**n}
-    ingredients = ("exact", "trivial", "fixed", "union", "explicit", "cylinder")
+    ingredients = ("exact", "trivial", "fixed", "union", "explicit", "cylinder", "uniform")
     for (n, m), r in g.items():
         t = Fraction(r["tplus"])
         if m == 1:
@@ -106,12 +120,55 @@ def test_exact_cells_are_below_every_ingredient():
                 assert Fraction(r["exact"]) >= ex[key]
 
 
+def formula_cells():
+    with open(DATA / "formula_cells.csv", newline="") as f:
+        return {(int(r["n"]), int(r["m"])): r for r in csv.DictReader(f)}
+
+
 def test_grid_exact_column():
     ex = exact_values()
+    fo = formula_cells()
     for key, r in grid().items():
-        if r.get("exact"):
+        if not r.get("exact"):
+            continue
+        if key in ex:
             assert Fraction(r["exact"]) >= ex[key]
             assert Fraction(r["exact"]) - ex[key] < Fraction(1, 10**12)
+        elif r["params"] == "formula":
+            assert Fraction(r["exact"]) >= Fraction(fo[key]["t_upper"])
+        else:
+            assert r["params"] == "dense"
+
+
+def test_formula_cells():
+    """formula_cells.csv: the grid cells with m <= 12 and no exact value, from Proposition small-m."""
+    from gradient_key.small_formulas import load_formula
+
+    ex = exact_values()
+    fo = formula_cells()
+    assert set(fo) == {(n, m) for n in NS for m in range(2, 13) if m <= 2**n and (n, m) not in ex}
+    coeffs = {m: load_formula(ROOT / "data" / "small", m) for m in range(2, 13)}
+    for (n, m), r in fo.items():
+        b = gt.formula_value(n, m, coeffs[m])
+        hi = frac(b.b)
+        assert Fraction(r["t_upper"]) >= hi and Fraction(r["t_upper"]) - hi <= Fraction(1, 10**24)
+        assert hi >= complete_cost(m)
+        assert r["method"] == ("exact" if n <= 4096 else "interval")
+        if n <= 4096:
+            assert b.a == b.b or frac(b.b) - frac(b.a) < Fraction(1, 10**40)
+    # the formula agrees with the path formula on the cells where both exist
+    for (n, m), v in ex.items():
+        if m <= 12 and n >= 2:
+            b = gt.formula_value(n, m, coeffs[m])
+            assert frac(b.a) <= v <= frac(b.b), (n, m)
+
+
+def test_uniform_against_intervals():
+    """Ingredient (g), Theorem uniform, on every grid cell, against mpmath intervals."""
+    for (n, m), r in grid().items():
+        if m == 1:
+            continue
+        check(r["uniform"], gt.uniform_bound(n, m), rel=1e-12)
 
 
 def parse_params(text):
@@ -210,12 +267,12 @@ def test_where_each_ingredient_wins():
     win = {}
     for key, r in g.items():
         win.setdefault(r["ingredient"], set()).add(key)
-    assert set(win) == {"m=1", "exact", "fixed", "union", "cylinder", "trivial"}  # (e) never wins
+    assert set(win) == {"m=1", "exact", "fixed", "union", "cylinder", "uniform", "trivial"}  # (e) never wins
     for (n, m), r in g.items():
         if m == 1:
             continue
         lm = math.log2(m)
-        if (n, m) in ex:
+        if (n, m) in ex or r["exact"]:
             assert r["ingredient"] == "exact"
         elif n >= 5 * m**1.5:
             assert r["ingredient"] == "fixed"
@@ -229,12 +286,18 @@ def test_where_each_ingredient_wins():
             assert n >= m**1.5 / 2
         if r["ingredient"] == "trivial":
             assert n < 2 * lm
+        if r["ingredient"] == "uniform":
+            assert lm < n < 2 * lm
+        if r["ingredient"] == "exact" and r["params"] == "formula":
+            assert m <= 12
         if m == 2**n:
             assert Fraction(r["trivial"]) == n and Fraction(r["tplus"]) == n
         if r["explicit"]:
             assert Fraction(r["union"]) <= Fraction(r["explicit"])
     assert len(win["union"]) == 4
-    assert sum(1 for n, m in win["cylinder"] if n < 2 * math.log2(m)) == 18
+    assert len(win["uniform"]) == 8
+    assert sum(1 for n, m in g if m >= 2 and g[n, m]["params"] == "formula") == 120
+    assert sum(1 for n, m in win["cylinder"] if n < 2 * math.log2(m)) == 17
 
 
 def test_weak_region():
@@ -252,7 +315,7 @@ def test_weak_region():
         if m >= 2**12 and 3 * lm < n <= 8 * lm:
             assert Fraction(12, 100) < v < Fraction(32, 100)
         if m >= 2**16 and lm < n < 2 * lm:
-            assert r["ingredient"] == "trivial"
+            assert r["ingredient"] in ("trivial", "uniform")
         if n >= 2 * lm:
             assert v < Fraction(59, 100)
         if n >= 8 * lm:

@@ -3,7 +3,8 @@
 //
 // t^+_{n,m} is the least of the bounds the article proves for the cell:
 //   exact     the exact value of data/gradient-bound/exact_formula.csv, or C(m)
-//             if 2^n - n <= m < 2^n (Proposition dense: G is optimal there)
+//             if 2^n - n <= m < 2^n (Proposition dense: G is optimal there), or
+//             the upper bound of formula_cells.csv (Proposition small-m, m <= 12)
 //   trivial   min(n, C_max(m)): on D a path never repeats a row
 //   fixed     Theorem fixed-m: C(m) + (C_max - C) sum_{s>=4} C(m,s)(1-beta_s)^n / Q(D)
 //   union     Proposition union, minimised over the finite family of
@@ -11,6 +12,8 @@
 //   explicit  Corollary explicit, K in {20, 30, 40, 60}, where its hypotheses hold
 //   cylinder  Proposition cylinder, minimised over j in CYL_JS and the (s_1, x)
 //             of "union"
+//   uniform   Theorem uniform: l - 1 + m 2^-l + sum_{i<l} 2^(i-l) min(n/(n-i),
+//             2 + 2 ln(2n/(n-i))), l = floor(log2 m)
 // with t = 0 for m = 1. The cell must have m <= 2^n.
 //
 // Parameters of "union": a requirement kappa_j(s), for s <= s_1, is the largest
@@ -36,7 +39,7 @@
 //   grid [<out.csv>]            the grid of the article (default
 //                               data/gradient-bound/tplus.csv)
 // Option --data <dir> (default data/gradient-bound) locates
-// exact_formula.csv and gradient_constants.csv.
+// exact_formula.csv, formula_cells.csv and gradient_constants.csv.
 //
 // SPDX-License-Identifier: MIT
 #include <algorithm>
@@ -153,6 +156,7 @@ void build_tables() {
 // ---------------------------------------------------------------- data files
 
 std::map<std::pair<long, u64>, std::pair<std::string, std::string>> EXACT;
+std::map<std::pair<long, u64>, std::string> FORMULA;  // decimal upper bounds, m <= 12
 std::map<int, double> CK;  // c_K upper bounds
 
 double parse_dir(const std::string& s, int mode) {
@@ -182,6 +186,7 @@ void read_data(const std::string& dir) {
   auto ex = read_csv(dir + "/exact_formula.csv");
   if (ex.empty()) std::cerr << "warning: no " << dir << "/exact_formula.csv\n";
   for (auto& r : ex) EXACT[{std::stol(r[0]), std::stoull(r[1])}] = {r[2], r[3]};
+  for (auto& r : read_csv(dir + "/formula_cells.csv")) FORMULA[{std::stol(r[0]), std::stoull(r[1])}] = r[2];
   // columns K,s1,x,max_rho_upper,argmax,cylinder_tail_upper,c_K_upper, 8 decimals
   // rounded to nearest: add 1e-8
   for (auto& r : read_csv(dir + "/gradient_constants.csv")) CK[std::stoi(r[0])] = parse_dir(r[6], FE_UPWARD) + 1e-8;
@@ -198,7 +203,7 @@ struct Cell {
   long n;
   u64 m;
   double log2m_up, log2m_dn, C_up, C_dn, Cmax_up, Rmax_up, invQD_up;
-  Ingredient exact, trivial, fixed, uni, expl, cyl;
+  Ingredient exact, trivial, fixed, uni, expl, cyl, unif;
   double tplus;
   std::string winner, params;
 };
@@ -497,6 +502,19 @@ void ingredient_explicit(Cell& c) {
   c.expl = best;
 }
 
+// Theorem uniform (ingredient (g)), with l = floor(log2 m) <= n:
+// t <= l - 1 + m 2^-l + sum_{i<l} 2^(i-l) min(n/(n-i), 2 + 2 ln(2n/(n-i))).
+void ingredient_uniform(Cell& c) {
+  int l = floor_log2(c.m);
+  double v = double(l - 1) + std::ldexp(double(c.m), -l);  // exact for m < 2^53; rounded up otherwise
+  for (int i = 0; i < l; ++i) {
+    double q = double(c.n) / double(c.n - i);  // rounded up
+    double w = std::min(q, 2 + 2 * log_up(2 * q));
+    v += std::ldexp(w, i - l);
+  }
+  c.unif = {v, ""};
+}
+
 Cell evaluate(long n, u64 m, bool use_exact) {
   Cell c{};
   c.n = n;
@@ -524,15 +542,19 @@ Cell evaluate(long n, u64 m, bool use_exact) {
     }
     // Proposition dense: for 2^n - n <= m < 2^n every table has t = C(m). (m = 2^n is exact through "trivial".)
     if (c.exact.value == INF && n < 63 && m < (u64{1} << n) && m + u64(n) >= (u64{1} << n)) c.exact = {c.C_up, "dense"};
+    auto fo = FORMULA.find({n, m});
+    if (c.exact.value == INF && fo != FORMULA.end()) c.exact = {parse_dir(fo->second, FE_UPWARD), "formula"};
   }
   c.trivial = {std::min(double(n), c.Cmax_up), double(n) <= c.Cmax_up ? "n" : "Cmax"};
   ingredient_fixed(c);
   ingredient_union(c);
   ingredient_explicit(c);
   ingredient_cylinder(c);
+  ingredient_uniform(c);
 
   std::pair<const char*, Ingredient*> all[] = {
-      {"exact", &c.exact}, {"fixed", &c.fixed}, {"union", &c.uni}, {"explicit", &c.expl}, {"cylinder", &c.cyl}, {"trivial", &c.trivial}};
+      {"exact", &c.exact}, {"fixed", &c.fixed}, {"union", &c.uni}, {"explicit", &c.expl}, {"cylinder", &c.cyl},
+      {"uniform", &c.unif}, {"trivial", &c.trivial}};
   c.tplus = INF;
   for (auto [name, ing] : all) {
     if (ing->value < c.tplus) {
@@ -545,7 +567,7 @@ Cell evaluate(long n, u64 m, bool use_exact) {
 }
 
 std::string csv_header() {
-  return "n,m,tplus,tplus_minus_log2m,ingredient,params,exact,trivial,fixed,union,union_params,explicit,explicit_params,cylinder,cylinder_params";
+  return "n,m,tplus,tplus_minus_log2m,ingredient,params,exact,trivial,fixed,union,union_params,explicit,explicit_params,cylinder,cylinder_params,uniform";
 }
 
 std::string opt(const Ingredient& i) { return i.value == INF ? "" : fmt(i.value); }
@@ -553,10 +575,11 @@ std::string opt(const Ingredient& i) { return i.value == INF ? "" : fmt(i.value)
 std::string csv_row(const Cell& c) {
   std::string r = std::to_string(c.n) + "," + std::to_string(c.m) + "," + fmt(c.tplus) + ",";
   r += (c.m == 1 ? std::string("0") : fmt(c.tplus - c.log2m_dn)) + "," + c.winner + "," + c.params + ",";
-  if (c.m == 1) return r + ",,,,,,,,";
+  if (c.m == 1) return r + ",,,,,,,,,";
   r += opt(c.exact) + "," + opt(c.trivial) + "," + opt(c.fixed) + "," + opt(c.uni) + "," + c.uni.params + ",";
   r += opt(c.expl) + "," + c.expl.params + ",";
-  r += opt(c.cyl) + "," + c.cyl.params;
+  r += opt(c.cyl) + "," + c.cyl.params + ",";
+  r += opt(c.unif);
   return r;
 }
 
@@ -619,6 +642,7 @@ int main(int argc, char** argv) {
     show("(d) union    ", c.uni);
     show("(e) explicit ", c.expl);
     show("(f) cylinder ", c.cyl);
+    show("(g) uniform  ", c.unif);
     return 0;
   }
   if (args[0] == "kappa" && args.size() == 4) {  // kappa(s), s = 2..min(m, S1MAX), of ingredient (f) for j
