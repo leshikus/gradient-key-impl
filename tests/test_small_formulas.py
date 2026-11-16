@@ -135,7 +135,9 @@ def test_formula_matches_the_reference(n, m):
 
 def test_markdown_tables_are_current():
     assert (DATA / "formulas.md").read_text() == sf.formulas_md(DATA, range(2, 14))
-    assert (DATA / "exact_values.md").read_text() == sf.exact_values_md(ROOT / "data" / "gradient-bound" / "exact_formula.csv", 12, 13)
+    gb = ROOT / "data" / "gradient-bound"
+    assert (DATA / "exact_values.md").read_text() == sf.exact_values_md(gb / "exact_formula.csv", 12, 13,
+                                                                        complement=gb / "exact_complement.csv")
 
 
 def test_count_of_exact_values_in_the_article():

@@ -10,7 +10,7 @@ endif()
 add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wno-sign-conversion)
 
 # One executable per source file, listed explicitly (no glob: a stray .cpp must not become an engine).
-foreach(engine IN ITEMS gradient_bound gradient_enum gradient_tplus)
+foreach(engine IN ITEMS gradient_bound gradient_complement gradient_enum gradient_tplus)
   add_executable(${engine} ${engine}.cpp)
 endforeach()
 

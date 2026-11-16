@@ -61,7 +61,8 @@ def tex() -> None:
 
 def md() -> None:
     (DATA / "formulas.md").write_text(formulas_md(DATA, range(2, 14)))
-    (DATA / "exact_values.md").write_text(exact_values_md(ROOT / "data" / "gradient-bound" / "exact_formula.csv", 12, 13))
+    gb = ROOT / "data" / "gradient-bound"
+    (DATA / "exact_values.md").write_text(exact_values_md(gb / "exact_formula.csv", 12, 13, complement=gb / "exact_complement.csv"))
 
 
 if __name__ == "__main__":
