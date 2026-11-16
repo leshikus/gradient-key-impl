@@ -55,12 +55,12 @@ def tex() -> None:
     for m in (4, 5, 6):
         parts.append(r"\newcommand{\smallformula%s}{%s}" % ("".join("four five six".split()[m - 4:m - 3]), formula_tex(m, load_formula(DATA, m))))
     (art / "small_formulas.tex").write_text("\n".join(parts) + "\n")
-    (art / "small_table_m.tex").write_text(table_m_tex(DATA, range(4, 13)))
+    (art / "small_table_m.tex").write_text(table_m_tex(DATA, range(4, 14)))
     (art / "small_table_n.tex").write_text(table_n_tex(DATA / "fixed_n.csv"))
 
 
 def md() -> None:
-    (DATA / "formulas.md").write_text(formulas_md(DATA, range(2, 13)))
+    (DATA / "formulas.md").write_text(formulas_md(DATA, range(2, 14)))
     (DATA / "exact_values.md").write_text(exact_values_md(ROOT / "data" / "gradient-bound" / "exact_formula.csv", 12, 13))
 
 

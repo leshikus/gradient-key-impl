@@ -14,7 +14,7 @@ from gradient_key.gradient_bound import complete_cost
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data" / "small"
-MS = range(4, 13)
+MS = range(4, 14)
 
 
 def test_doctests():
@@ -39,7 +39,7 @@ def test_formula_matches_brute_force_enumeration():
     cells = 0
     for r in csv.DictReader(open(ROOT / "data" / "gradient-bound" / "exact.csv")):
         n, m = int(r["n"]), int(r["m"])
-        if 4 <= m <= 12:
+        if 4 <= m <= 13:
             t = Fraction(int(r["numerator"]), int(r["denominator"]))
             assert t == complete_cost(m) + sf.excess(sf.load_formula(DATA, m), m, n), f"n={n}, m={m}"
             cells += 1
@@ -50,7 +50,7 @@ def test_formula_matches_path_formula_cells_beyond_the_fit():
     cells = 0
     for r in csv.DictReader(open(ROOT / "data" / "gradient-bound" / "exact_formula.csv")):
         n, m = int(r["n"]), int(r["m"])
-        if 4 <= m <= 12 and n > 2 ** (m - 1) // 2:
+        if 4 <= m <= 13 and n > 2 ** (m - 1) // 2:
             assert Fraction(int(r["numerator"]), int(r["denominator"])) == complete_cost(m) + sf.excess(sf.load_formula(DATA, m), m, n)
             cells += 1
     assert cells > 0
@@ -76,7 +76,7 @@ def test_fixed_rows_match_the_formulas_and_vanish_at_the_complete_table():
         assert sorted(cells) == list(range(2, 2**n + 1)), f"n={n}"
         assert cells[2**n] == 0, f"n={n}"
         for m, v in cells.items():
-            if 4 <= m <= 12:
+            if 4 <= m <= 13:
                 assert v == sf.excess(sf.load_formula(DATA, m), m, n), f"n={n}, m={m}"
     assert all(v == 0 for n in (1, 2) for v in rows[n].values())
 
@@ -85,7 +85,7 @@ def test_tables_in_the_article_are_current():
     art = Path(os.environ.get("ARTICLE_DIR", ROOT.parent / "gradient-key"))
     if not (art / "small_table_m.tex").exists():
         pytest.skip("the gradient-key repository is not checked out next to this one")
-    assert (art / "small_table_m.tex").read_text() == sf.table_m_tex(DATA, range(4, 13))
+    assert (art / "small_table_m.tex").read_text() == sf.table_m_tex(DATA, range(4, 14))
     assert (art / "small_table_n.tex").read_text() == sf.table_n_tex(DATA / "fixed_n.csv")
 
 
@@ -112,7 +112,7 @@ def reference_sums() -> dict[int, dict[int, int]]:
 
 def test_reference_matches_the_formulas():
     for m, cells in reference_sums().items():
-        if 4 <= m <= 12:
+        if 4 <= m <= 13:
             c = sf.load_formula(DATA, m)
             for n, v in cells.items():
                 assert sf.excess_numerator_from_sum(n, m, v) == sf.numerator(c, n), f"n={n}, m={m}"
@@ -134,7 +134,7 @@ def test_formula_matches_the_reference(n, m):
 
 
 def test_markdown_tables_are_current():
-    assert (DATA / "formulas.md").read_text() == sf.formulas_md(DATA, range(2, 13))
+    assert (DATA / "formulas.md").read_text() == sf.formulas_md(DATA, range(2, 14))
     assert (DATA / "exact_values.md").read_text() == sf.exact_values_md(ROOT / "data" / "gradient-bound" / "exact_formula.csv", 12, 13)
 
 
