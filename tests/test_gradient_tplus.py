@@ -336,24 +336,6 @@ def test_small_forks_split_one_to_three():
         assert _kappa(*cell, j)[4] == 1
 
 
-def test_article_table_is_generated():
-    import importlib.util
-
-    codes = Path(os.environ.get("ARTICLE_DIR", ROOT.parent / "gradient-key"))
-    path = codes / "tplus_table.tex"
-    if not path.exists():
-        pytest.skip("the gradient-key repository is not checked out next to this one")
-    spec = importlib.util.spec_from_file_location("gbd", ROOT / "scripts" / "gradient_bound_data.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    text = path.read_text()
-    g = grid()
-    for n in mod.TPLUS_NS:
-        for m in mod.TPLUS_MS:
-            if (n, m) in g:
-                assert mod.tplus_cell(g[n, m]) in text
-
-
 def test_dense_cells_are_exact():
     """Proposition dense: t = C(m) for 2^n - n <= m < 2^n, where no exact value is stored."""
     pairs = [(n, 2**n - r) for n in (13, 20, 40) for r in (1, n // 2, n)]

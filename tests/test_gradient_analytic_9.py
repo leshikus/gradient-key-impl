@@ -126,12 +126,6 @@ def test_formula_extension_files():
     assert len(t) >= 400 + len(runs)  # scripts/gradient_bound_data.py exact also adds cells
 
 
-@pytest.mark.skipif(not TEXT.exists(), reason="the gradient-key repository is not checked out next to this one")
-def test_generated_tex_is_current(tmp_path):
-    g9.write_tex(OUT, tmp_path / "t.tex")
-    assert (tmp_path / "t.tex").read_text() == (TEXT / "09-tables.tex").read_text()
-
-
 # ---------------------------------------------------------------- numbers stated in 09-exact.tex
 
 

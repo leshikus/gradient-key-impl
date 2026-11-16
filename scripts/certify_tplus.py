@@ -62,7 +62,7 @@ def params(text: str) -> dict:
 
 
 def printed(r: dict) -> Fraction:
-    """The decimal of Table tplus (scripts/gradient_bound_data.py, tplus_cell)."""
+    """The decimal printed for t^+ - log m (3 places below 10, 1 place above), rounded up."""
     v = Fraction(r["tplus_minus_log2m"])
     return Fraction(math.ceil(v * 1000), 1000) if v < 10 else Fraction(math.ceil(v * 10), 10)
 

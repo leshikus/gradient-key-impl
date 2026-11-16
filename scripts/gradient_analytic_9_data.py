@@ -13,9 +13,6 @@
     .venv/bin/python scripts/gradient_analytic_9_data.py data
         the tables data/gradient-bound/analytic/*.csv from exact_formula.csv, the
         enumerations and the product formula
-    .venv/bin/python scripts/gradient_analytic_9_data.py tex
-        tables for 09-exact.tex, written to $ARTICLE_DIR/analytic/
-        (ARTICLE_DIR defaults to ../gradient-key)
 
 Every value is exact; nothing is sampled.
 """
@@ -114,11 +111,6 @@ def data() -> None:
     g9.write_data(DATA, OUT / "enum")
 
 
-def tex() -> None:
-    codes = Path(os.environ.get("ARTICLE_DIR", ROOT.parent / "gradient-key"))
-    g9.write_tex(DATA / "analytic", codes / "analytic" / "09-tables.tex")
-
-
 if __name__ == "__main__":
     a = sys.argv[1:]
     retry = "--retry-timeouts" in a
@@ -129,8 +121,6 @@ if __name__ == "__main__":
         enum(a[1])
     elif a == ["data"]:
         data()
-    elif a == ["tex"]:
-        tex()
     else:
         print(__doc__)
         sys.exit(2)

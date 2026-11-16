@@ -25,13 +25,15 @@ finite computation, or both; nothing is estimated by sampling.
 |---|---|---|---|
 | (1) Exact formulas for `m <= 12` (Proposition 3.2) | proof of the form for every `m`; coefficients `a_j` by exact integer computation | `small_formulas.py`, `data/small/formula_m*.json`, `formulas.md` | fit checked on 6 to 8 extra `n` per `m`; `m = 4` also directly; `tests/test_small_formulas.py` |
 | (2) Exact values, `m > 12`, `n <= 12` (Proposition 3.1) | exact finite computation (integers modulo 62-bit primes, Chinese remainders with a spare prime as a check, range check `N <= T <= (m-1)N`) | `gradient_bound formula`, `gradient_bound.crt_combine`, `data/gradient-bound/exact_formula.csv`, `data/small/exact_values.md` | brute force on all 48 cells of `exact.csv` (`n <= 7`); Python path formula on small cells |
-| (3) Theorem 5.5, `t < log m + 2 + 2 ln(2l)`, `t < log m + 2` for `n >= 2l - 2` | proof; no computation | none | sanity check of the per-table inequality: `../gradient-key/notes/scripts/check_uniform_recursion.py` |
+| (3) Theorem 5.5, `t < log m + 2 + 2 ln(2l)`, `t < log m + 2` for `n >= 2l - 2` | proof; no computation | none | sanity check of the per-table inequality: `scripts/check_uniform_recursion.py` |
 
 The constants `c_K`, `c_b` and the table `t^+` (`gradient_constants.csv`, `blocked_constants.csv`, `tplus.csv`) belong to
 earlier versions of the article. They are upper bounds computed in `mpmath` interval arithmetic (`verify_certificates.py`,
 `certify_tplus.py`); the C++ engine `gradient_tplus` uses directed rounding and widens the C library's `log`, `log1p`,
 `exp` by 16 ulp, which is checked at run time on a few values but not proved for every C library. A finite grid of
 values, exact or bounded, is never evidence for a statement about all `n` and `m`.
+The modules `gradient_analytic_*.py` and their tests check the working notes `analytic/*.tex` of those earlier versions;
+the notes are in the history of `leshikus/gradient-key` (commit `8ef012e` and before).
 
 Toolchain used for the data: x86_64, GCC 15.2.0 / Clang, glibc 2.43, CMake >= 3.28, Python 3.14.4 with the pins of
 `requirements-certificates.txt`. `scripts/verify_certificates.py --strict` fails on any skipped check or version mismatch.
