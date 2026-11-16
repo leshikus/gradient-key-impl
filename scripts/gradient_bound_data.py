@@ -53,7 +53,7 @@ def constants() -> None:
         for b in (2, 3, 4):
             u = chain_upper(b, S0)
             best = max(range(1, S0 + 1), key=lambda s: u[s])
-            w.writerow([b, S0, up(u[best], 8), best, alpha, up(mu, 8), up(exact(u[best]) + exact(mu), 8)])
+            w.writerow([b, S0, up(u[best], 8), best, alpha, up(mu, 8), up(exact_value(u[best]) + exact_value(mu), 8)])
             f.flush()
     tail = cylinder_tail(S1, X)
     with open(DATA / "gradient_constants.csv", "w", newline="") as f:
@@ -63,7 +63,7 @@ def constants() -> None:
             kap = kappa_column(K, S1)
             u = rho_upper(kap, S1)
             best = max(range(1, S1 + 1), key=lambda s: u[s])
-            w.writerow([K, S1, X, up(u[best], 8), best, up(tail, 8), up(exact(u[best]) + exact(tail), 8)])
+            w.writerow([K, S1, X, up(u[best], 8), best, up(tail, 8), up(exact_value(u[best]) + exact_value(tail), 8)])
             f.flush()
 
 
@@ -106,8 +106,8 @@ def formula_grid() -> list[tuple[int, int]]:
                 cells.add((n, m))
     for m in range(4, 13):  # the range of the non-asymptotic form of the fixed-m theorem
         cells.add((math.isqrt(2 * m**3 - 1) + 1, m))  # ceil(sqrt(2) m^(3/2)), in integers
-    for n in range(4, 13):  # Result (2) of the article: every m > 12 with m <= min(32, 2^n), for n <= 12
-        for m in range(13, min(32, 2**n) + 1):
+    for n in range(4, 7):  # Result (2) of the article: every m > 12 for n <= 6; closed forms give m >= 2^n - n - 2
+        for m in range(13, 2**n - n - 2):
             cells.add((n, m))
     return sorted(cells, key=lambda c: (tuple_count(*c) * c[0], c))
 
@@ -145,7 +145,7 @@ def exact(threads: str) -> None:
             f.write(f"{n},{m},{value.numerator},{value.denominator}\n")
 
 
-def exact(x) -> Fraction:
+def exact_value(x) -> Fraction:
     """An exact rational from a Fraction, an int, a decimal string, or an mpmath number (exactly, no rounding)."""
     if isinstance(x, float):
         raise TypeError("a float may already be rounded below the bound; pass an exact value")
@@ -155,12 +155,12 @@ def exact(x) -> Fraction:
 
 
 def up(v, digits: int) -> str:
-    """The least decimal with ``digits`` places that is >= v, for an exact v (see :func:`exact`).
+    """The least decimal with ``digits`` places that is >= v, for an exact v (see :func:`exact_value`).
 
         >>> up(Fraction(10000000000005, 10**13), 3), up("1.000", 3), up(Fraction(-1, 3), 2)
         ('1.001', '1.000', '-0.33')
     """
-    q = math.ceil(exact(v) * 10**digits)
+    q = math.ceil(exact_value(v) * 10**digits)
     sign = "-" if q < 0 else ""
     s = str(abs(q)).rjust(digits + 1, "0")
     return f"{sign}{s[:-digits]}.{s[-digits:]}" if digits else f"{sign}{s}"

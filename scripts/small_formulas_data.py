@@ -31,7 +31,7 @@ from gradient_key.small_formulas import (  # noqa: E402
 
 DATA = ROOT / "data" / "small"
 ENGINE = ROOT / "build" / "cpp" / "gradient_bound"
-MAX_ROWS = 5  # the engine takes at most 33 columns
+MAX_ROWS = 5  # fixed_n.csv: every m <= 2^n for n <= 5
 
 
 def main(max_m: int) -> None:

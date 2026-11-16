@@ -234,20 +234,27 @@ struct Formula {
     pt.poly[0] = 1;
     for (int v : lam)
       for (int k = a; k >= v; --k) pt.poly[static_cast<std::size_t>(k)] += pt.poly[static_cast<std::size_t>(k - v)];
-    // |coef| = a! / (prod lambda_i * prod mult!), computed exactly; a <= 33 fits 128 bits.
-    u128 c = 1;
-    for (int i = 2; i <= a; ++i) c *= static_cast<u128>(i);
-    for (int v : lam) c /= static_cast<u128>(v);
-    for (std::size_t i = 0; i < lam.size();) {
-      std::size_t j = i;
-      while (j < lam.size() && lam[j] == lam[i]) ++j;
-      for (std::size_t f = 2; f <= j - i; ++f) c /= static_cast<u128>(f);
-      i = j;
-    }
+    // |coef| = a! / (prod lambda_i * prod mult!), the number of set partitions of a cell of size a into blocks of
+    // type lambda. It is needed only modulo each prime p > a: a! times the inverse of the denominator, mod p.
+    // (The exact integer exceeds 128 bits for a >= 35.)
     const bool negative = (a - static_cast<int>(lam.size())) % 2 != 0;
     for (const Mont& md : mod) {
-      u64 v = md.in(static_cast<u64>(c % md.p));
-      if (negative && v) v = md.p - v;
+      const u64 p = md.p;
+      auto mul = [p](u64 x, u64 y) { return static_cast<u64>(static_cast<u128>(x) * y % p); };
+      u64 num = 1, den = 1;
+      for (int i = 2; i <= a; ++i) num = mul(num, static_cast<u64>(i));
+      for (int v : lam) den = mul(den, static_cast<u64>(v));
+      for (std::size_t i = 0; i < lam.size();) {
+        std::size_t j = i;
+        while (j < lam.size() && lam[j] == lam[i]) ++j;
+        for (std::size_t f = 2; f <= j - i; ++f) den = mul(den, static_cast<u64>(f));
+        i = j;
+      }
+      u64 inv = 1, b = den;  // den^(p-2) mod p; p is prime and larger than every factor
+      for (u64 e = p - 2; e; e >>= 1, b = mul(b, b))
+        if (e & 1) inv = mul(inv, b);
+      u64 v = md.in(mul(num, inv));
+      if (negative && v) v = p - v;
       pt.coef.push_back(v);
     }
     parts[static_cast<std::size_t>(a)].push_back(std::move(pt));
@@ -490,8 +497,8 @@ int primes_for(int n, int m) {
 }
 
 int cmd_formula(int n, int m, int threads, bool all) {
-  if (n < 1 || m < 2 || m > 33 || (n < 40 && m > (1LL << n)) || threads < 1) {
-    std::println(stderr, "formula: need 2 <= m <= min(33, 2^n), threads >= 1");
+  if (n < 1 || m < 2 || m > 62 || (n < 40 && m > (1LL << n)) || threads < 1) {
+    std::println(stderr, "formula: need 2 <= m <= min(62, 2^n), threads >= 1");
     return 2;
   }
   const int nprimes = primes_for(n, m);
