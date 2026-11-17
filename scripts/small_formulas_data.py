@@ -4,6 +4,7 @@
     .venv/bin/python scripts/small_formulas_data.py <max_m>      # needs build/cpp/gradient_bound
     .venv/bin/python scripts/small_formulas_data.py tex          # writes small_tables.tex to $ARTICLE_DIR
     .venv/bin/python scripts/small_formulas_data.py md           # data/small/formulas.md and exact_values.md
+    .venv/bin/python scripts/small_formulas_data.py fixed <n>    # row n of fixed_n.csv from the stored exact values
 
 Every number is an exact rational; the fit for each `m` is checked on further values of `n`.
 """
@@ -65,8 +66,39 @@ def md() -> None:
     (DATA / "exact_values.md").write_text(exact_values_md(gb / "exact_formula.csv", 12, 13, complement=gb / "exact_complement.csv"))
 
 
+def fixed_from_data(n: int) -> None:
+    """Add the row n of fixed_n.csv from stored exact values: the formulas (m <= 13), the closed forms, the path formula
+    (exact_formula.csv) and the missing-set enumeration (exact_complement.csv). Every m <= 2^n must be covered."""
+    from fractions import Fraction
+    from gradient_key.gradient_bound import complete_cost
+    from gradient_key.small_formulas import closed_form_excess, excess
+
+    gb = ROOT / "data" / "gradient-bound"
+    stored = {}
+    for name in ("exact_formula.csv", "exact_complement.csv"):
+        for r in csv.DictReader(open(gb / name)):
+            stored[int(r["n"]), int(r["m"])] = Fraction(int(r["numerator"]), int(r["denominator"]))
+    rows = [r for r in csv.DictReader(open(DATA / "fixed_n.csv")) if int(r["n"]) != n]
+    for m in range(2, 2**n + 1):
+        cf = closed_form_excess(n, m)
+        if m <= 13:
+            v = excess(load_formula(DATA, m), m, n) if m >= 4 else Fraction(0)
+        elif cf is not None:
+            v = cf[0]
+        else:
+            v = stored[n, m] - complete_cost(m)
+        rows.append({"n": n, "m": m, "excess_numerator": v.numerator, "excess_denominator": v.denominator})
+    rows.sort(key=lambda r: (int(r["n"]), int(r["m"])))
+    with open(DATA / "fixed_n.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["n", "m", "excess_numerator", "excess_denominator"], lineterminator="\r\n")  # as written by main()
+        w.writeheader()
+        w.writerows(rows)
+
+
 if __name__ == "__main__":
-    if sys.argv[1:] == ["tex"]:
+    if sys.argv[1:2] == ["fixed"] and len(sys.argv) == 3:
+        fixed_from_data(int(sys.argv[2]))
+    elif sys.argv[1:] == ["tex"]:
         tex()
     elif sys.argv[1:] == ["md"]:
         md()
