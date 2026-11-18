@@ -361,11 +361,10 @@ def exact_values_md(path: Path, n_max: int, m_min: int, m_max: int = 32, n_full:
            "- `r = n + 2`, `n >= 4`: `t - C(m) = 2^(n-2) (3^n - 2n - 1) / (m binom(N, n+2))` (Proposition near-dense).", "",
            "| n | m | rule | t - C(m), exact |", "|---|---|---|---|"]
     out += [f"| {n} | {m} | {rule} | {frac(d)} |" for n, m, d, rule in closed]
-    out += ["", "## Path formula", "",
-            f"{len(computed)} pairs; \"yes\" in the last column: the enumeration of the missing words gives the same value.", "",
-            "| n | m | t_{n,m}(G), decimal | t - C(m) | t_{n,m}(G), exact | both engines |", "|---|---|---|---|---|---|"]
-    for n, m, t, both in computed:
-        out.append(f"| {n} | {m} | {float(t):.6f} | {float(t - complete_cost(m)):.6g} | {frac(t)} | {'yes' if both else ''} |")
+    out += ["", "## Path formula", "", f"{len(computed)} pairs.", "",
+            "| n | m | t_{n,m}(G), decimal | t - C(m) | t_{n,m}(G), exact |", "|---|---|---|---|---|"]
+    for n, m, t, _ in computed:
+        out.append(f"| {n} | {m} | {float(t):.6f} | {float(t - complete_cost(m)):.6g} | {frac(t)} |")
     if enumerated:
         out += ["", "## Enumeration of the missing words", "", f"{len(enumerated)} pairs.", "",
                 "| n | m | t_{n,m}(G), decimal | t - C(m) | t_{n,m}(G), exact |", "|---|---|---|---|---|"]
